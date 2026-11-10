@@ -42,8 +42,8 @@ Tidak membutuhkan koneksi internet saat dijalankan: seluruh CSS dan ikon sudah a
 ### Windows
 
 ```bash
-git clone https://github.com/nnabilahan/Skripsi-ika.git
-cd Skripsi-ika
+git clone https://github.com/ikarizkah8-del/sistem.git
+cd sistem
 python -m venv venv
 venv\Scripts\activate
 pip install -r sistem_deteksi_ddos/requirements.txt
@@ -53,8 +53,8 @@ python sistem_deteksi_ddos/app.py
 ### macOS / Linux
 
 ```bash
-git clone https://github.com/nnabilahan/Skripsi-ika.git
-cd Skripsi-ika
+git clone https://github.com/ikarizkah8-del/sistem.git
+cd sistem
 python3 -m venv venv
 source venv/bin/activate
 pip install -r sistem_deteksi_ddos/requirements.txt
@@ -105,7 +105,7 @@ Salin keduanya lewat flashdisk dari komputer asal, lalu letakkan **persis** di j
 ## Isi repositori
 
 ```
-Skripsi-ika/
+sistem/
 ├─ sistem_deteksi_ddos/
 │  ├─ app.py                  Rute halaman, proses latar belakang, laporan PDF
 │  ├─ core.py                 Praproses, skor anomali, evaluasi, pengaman data latih
