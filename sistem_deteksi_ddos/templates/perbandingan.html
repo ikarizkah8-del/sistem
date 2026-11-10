@@ -1,135 +1,122 @@
 {% extends "base.html" %}{% from "_icons.html" import ic %}{% from "_widgets.html" import confusion %}
 {% block pagetitle %}Perbandingan Model — DDoS Detection{% endblock %}
 {% block title %}Perbandingan Model{% endblock %}
-{% block sub %}Isolation Forest dan LOF pada file uji yang sama{% if fname %}: {{ fname }}{% endif %}.{% endblock %}
+{% block sub %}Isolation Forest dan LOF pada berkas uji, data acuan, dan ambang yang sama{% if fname %}: {{ fname }}{% endif %}.{% endblock %}
 {% block content %}
-{% if not runs %}
-<div class="panel"><div class="empty">{{ ic('compare') }}Belum ada hasil untuk dibandingkan.<br>Jalankan kedua model pada file uji yang sama.
-  <div class="mt-2"><a class="btn btn-primary btn-sm" href="{{ url_for('uji') }}">{{ ic('play') }} Ke Uji Model</a></div></div></div>
-{% else %}
-{% if runs|length < 2 %}<div class="alert info">{{ ic('info') }}<div>Baru satu model yang dijalankan ({{ runs[0].name }}). Centang <b>Jalankan kedua model sekaligus</b> di halaman Uji Model pada file yang sama untuk melihat perbandingan penuh.</div></div>{% endif %}
-{% if fpr_mismatch %}<div class="alert warning">{{ ic('info') }}<div>Target alarm palsu kedua model berbeda. Samakan agar perbandingan adil.</div></div>{% endif %}
-{% if seed_mismatch %}<div class="alert warning">{{ ic('info') }}<div>Seed kedua model berbeda ({{ seed_mismatch }}). Untuk perbandingan yang adil, pilih IF dan LOF dengan seed yang sama di Pengaturan.</div></div>{% endif %}
 
-{% if has_labels %}
-<div class="panel reportcard">
+{% if not ada %}
+<div class="panel"><div class="empty">{{ ic('compare') }}Belum ada hasil untuk dibandingkan.<br>
+  Jalankan pilihan <b>Keduanya (IF + LOF)</b> pada berkas uji yang sama.
+  <div class="mt-2"><a class="btn btn-primary btn-sm" href="{{ url_for('uji') }}">{{ ic('play') }} Ke Uji Model</a>
+  <a class="btn btn-outline btn-sm" href="{{ url_for('riwayat') }}">{{ ic('clock') }} Lihat Riwayat</a></div></div></div>
+{% else %}
+
+{% include "_strip.html" %}
+
+{% if satu_model %}<div class="alert info">{{ ic('info') }}<div>Baru satu model yang dijalankan.
+  Pilih <b>Keduanya (IF + LOF)</b> di halaman Uji Model pada berkas yang sama untuk perbandingan penuh.</div></div>{% endif %}
+{% if seed_mismatch %}<div class="alert warning">{{ ic('info') }}<div>Seed kedua model berbeda ({{ seed_mismatch }}).
+  Untuk perbandingan yang adil, pilih IF dan LOF dengan seed yang sama.</div></div>{% endif %}
+{% if acuan_mismatch %}<div class="alert warning">{{ ic('info') }}<div>Jumlah data acuan kedua model berbeda
+  ({{ acuan_mismatch }}). Perbandingan belum adil karena ukuran data latihnya tidak sama.</div></div>{% endif %}
+
+{% if not has_labels %}
+<div class="panel gap-top"><div class="empty">{{ ic('info') }}Berkas uji tidak punya kolom <code>Label</code>,
+  jadi hanya jumlah deteksi dan waktu yang tersedia.</div></div>
+{% else %}
+
+<div class="panel gap-top">
+  <div class="ptitle-row">
+    <h2>Kinerja pada seluruh ambang</h2>
+    <span class="small muted">menggantikan dua tabel terpisah</span>
+  </div>
+  <table class="tbl roomy quad">
+    <thead><tr><th>Metrik</th>{% for c in cols %}<th class="num">{{ c.label }}</th>{% endfor %}</tr></thead>
+    <tbody>
+      {% for b in baris %}
+      <tr class="{{ 'tetap' if b.tetap }}">
+        <td>{{ b.label }}{% if b.tetap %} <small class="muted">tidak bergantung ambang</small>{% endif %}</td>
+        {% for c in cols %}{% set v = c.vals[b.key] %}
+        <td class="num">{% if v is not none %}{{ v|pctc(2) }}{% else %}&mdash;{% endif %}</td>{% endfor %}
+      </tr>
+      {% endfor %}
+      <tr class="tetap">
+        <td>Waktu prediksi <small class="muted">satu sumber angka</small></td>
+        {% for c in cols %}<td class="num">{{ waktu[c.algo]|dtk }}</td>{% endfor %}
+      </tr>
+      <tr class="tetap">
+        <td>Ukuran berkas model</td>
+        {% for c in cols %}<td class="num">{{ sizes[c.algo] }}</td>{% endfor %}
+      </tr>
+    </tbody>
+  </table>
+  <div class="legend-note">{{ ic('info') }}<span>Seluruh kolom berasal dari <b>satu kali pengujian</b>: skor anomali
+    dihitung sekali, lalu dibandingkan dengan tiap ambang. ROC-AUC dan PR-AUC dihitung langsung dari skor sehingga
+    tidak berubah mengikuti ambang.</span></div>
+</div>
+
+<div class="panel gap-top">
+  <div class="ptitle-row">
+    <h2>Confusion matrix</h2>
+    <div class="seg">
+      {% for f in fprs %}
+      <a class="{{ 'on' if f == shown }}" href="{{ url_for('perbandingan', fpr=f) }}">FPR {{ f|pctc(0) }}</a>
+      {% endfor %}
+    </div>
+  </div>
+  <div class="row cols-2">
+    {% for c in cms %}
+    <div><div class="sub-title" style="color:{{ c.color }}">{{ c.name }}</div>{{ confusion(c.cm) }}</div>
+    {% endfor %}
+  </div>
+</div>
+
+<div class="panel gap-top">
+  <div class="ptitle-row"><h2>Recall per jenis serangan</h2>
+    <span class="small muted">pada ambang {{ shown|pctc(0) }}</span></div>
+  <table class="tbl roomy">
+    <thead><tr><th>Jenis serangan</th><th class="num">Jumlah uji</th>
+      {% for a in run_algos %}<th class="num">Recall {{ a }}</th>{% endfor %}<th></th></tr></thead>
+    <tbody>
+    {% for t in types %}
+    <tr class="{{ '' if t.cukup else 'muted' }}">
+      <td>{{ t.jenis }}</td><td class="num">{{ t.n|fmt }}</td>
+      {% for a in run_algos %}{% set rv = t.vals[a] %}
+      <td class="num">{% if rv is not none %}{{ rv|pctc(2) }}{% else %}&ndash;{% endif %}</td>{% endfor %}
+      <td class="small muted right">{{ '' if t.cukup else 'sampel < ' ~ min_n ~ ', tidak disimpulkan' }}</td>
+    </tr>
+    {% endfor %}
+    <tr class="sumrow">
+      <td><b>Macro recall</b></td><td></td>
+      {% for a in run_algos %}<td class="num"><b>{% if macro[a] is not none %}{{ macro[a]|pctc(2) }}{% else %}&mdash;{% endif %}</b></td>{% endfor %}
+      <td class="small muted right">rata-rata jenis dengan &ge; {{ min_n }} sampel</td>
+    </tr>
+    </tbody>
+  </table>
+  <div class="legend-note">{{ ic('info') }}<span>Angka total bisa menutupi kelemahan pada jenis serangan tertentu.
+    Jenis dengan sampel uji di bawah {{ min_n }} flow tidak dihitung pada macro recall.</span></div>
+</div>
+
+{% if temuan %}
+<div class="panel gap-top">
+  <div class="ptitle-row"><h2>Temuan utama</h2>
+    <span class="small muted">ringkas di layar, uraian lengkap di laporan PDF</span></div>
+  <ul class="temuan">{% for t in temuan %}<li>{{ t }}</li>{% endfor %}</ul>
+</div>
+{% endif %}
+
+<div class="panel reportcard gap-top">
   <div class="rp-i">{{ ic('download') }}</div>
   <div class="grow">
-    <h2>Laporan Perbandingan Lengkap</h2>
-    <p>Berkas PDF siap baca berisi kesimpulan dalam bahasa sehari-hari, penjelasan tiap istilah, grafik perbandingan ketepatan, rincian benar dan salah, kecepatan, kemampuan per jenis serangan, serta temuan dan batasannya.</p>
+    <h2>Laporan perbandingan lengkap</h2>
+    <p>Berkas PDF siap baca berisi kesimpulan dalam bahasa sehari-hari, penjelasan tiap istilah, grafik perbandingan
+      ketepatan, rincian benar dan salah, kecepatan, kemampuan per jenis serangan, serta temuan dan batasannya.</p>
     <div class="rp-tags">
       <span>Kesimpulan singkat</span><span>Arti istilah</span><span>Grafik ketepatan</span>
       <span>Confusion matrix</span><span>Kecepatan</span><span>Per jenis serangan</span><span>Temuan</span>
     </div>
   </div>
   <a class="btn btn-primary" href="{{ url_for('laporan_unduh') }}">{{ ic('download') }} Unduh laporan (.pdf)</a>
-</div>
-{% endif %}
-
-<!-- ============ rincian model ============ -->
-<div class="row cols-2">
-  {% for s in specs %}
-  <div class="panel modelcard">
-    <div class="mc-top">
-      <span class="mi">{{ ic('tree' if s.algo == 'IF' else 'lof') }}</span>
-      <div class="grow"><div class="nm">{{ s.name }}</div><div class="ky">{{ s.key }}</div></div>
-    </div>
-    {% if s.ok %}
-    <dl class="spec">
-      <dt>Dilatih pada</dt><dd>{{ s.trained_on or '—' }}</dd>
-      <dt>Data acuan</dt><dd>{% if s.n_train %}{{ s.n_train|fmt }} baris trafik normal{% else %}—{% endif %}</dd>
-      <dt>Jumlah fitur</dt><dd>{{ s.n_features or '—' }} kolom</dd>
-      <dt>Praproses</dt><dd>{{ s.prep }}</dd>
-      <dt>Seed</dt><dd>{{ s.seed if s.seed is not none else '—' }}</dd>
-      {% for k, v in s.params %}<dt>{{ k }}</dt><dd>{{ v }}</dd>{% endfor %}
-      <dt>Threshold dipakai</dt><dd>{% for x in runs %}{% if x.algo == s.algo %}<span class="thr"><b>{{ x.r.fpr|pctc(0) }}</b> {{ x.r.thr|dec(4) }} skor</span>{% endif %}{% endfor %}</dd>
-      <dt>Dibuat</dt><dd>{{ s.created or '—' }}{% if s.sklearn %} <span class="muted">· scikit-learn {{ s.sklearn }}</span>{% endif %}</dd>
-    </dl>
-    <div class="mc-foot">{{ s.desc|safe }}</div>
-    {% else %}
-    <div class="empty">{{ ic('box') }}Metadata model tidak terbaca.</div>
-    {% endif %}
-  </div>
-  {% endfor %}
-</div>
-
-<!-- ============ metrik ============ -->
-<div class="panel gap-top">
-  <div class="ptitle-row"><h2>Perbandingan Metrik</h2></div>
-  {% if not has_labels %}
-  <div class="empty">{{ ic('info') }}File tidak punya kolom <code>Label</code>, jadi hanya jumlah deteksi dan waktu yang tersedia.</div>
-  {% else %}
-  <div class="cmpbars">
-    {% for b in bars %}
-    <div class="cb">
-      <div class="cb-l">{{ b.label }}</div>
-      <div class="cb-rows">
-        {% for it in b.models %}
-        <div class="cb-row">
-          <span class="n">{{ it.algo }}</span>
-          <span class="trk"><i class="{{ 'if' if it.algo == 'IF' else 'lof' }}" style="width:{{ (it.v * 100)|round(1) }}%"></i></span>
-          <span class="v">{{ it.v|dec }} <small>({{ it.v|pctc }})</small>{% if it.best %} <span class="win">tertinggi</span>{% endif %}</span>
-        </div>
-        {% endfor %}
-      </div>
-    </div>
-    {% endfor %}
-  </div>
-  <div class="legend-note">{{ ic('info') }}<span>Semua batang memakai skala 0 sampai 1 yang sama. Selisih kecil pada satu file uji belum tentu berarti satu model lebih baik — laporkan beberapa seed sebelum menyimpulkan.</span></div>
-  {% endif %}
-</div>
-
-<!-- ============ waktu ============ -->
-<div class="panel gap-top">
-  <div class="ptitle-row"><h2>Waktu Prediksi</h2><span class="small muted">{{ runs[0].r.pred|length|fmt }} flow</span></div>
-  <div class="cmpbars">
-    <div class="cb" style="grid-column:1/-1">
-      <div class="cb-l">Detik</div>
-      <div class="cb-rows">
-        {% for s in speed %}
-        <div class="cb-row">
-          <span class="n">{{ s.algo }}</span>
-          <span class="trk"><i class="{{ 'if' if s.algo == 'IF' else 'lof' }}" style="width:{{ (s.frac * 100)|round(1) }}%"></i></span>
-          <span class="v">{{ s.t|dec(1) }} detik{% if s.fastest and speed|length > 1 %} <span class="win">tercepat</span>{% endif %}</span>
-        </div>
-        {% endfor %}
-      </div>
-    </div>
-  </div>
-  <div class="legend-note">{{ ic('info') }}<span>Hanya waktu menghitung skor, di luar pembacaan CSV. Isolation Forest menelusuri pohon dengan biaya tetap, sedangkan LOF mengukur jarak ke seluruh data acuan sehingga biayanya tumbuh mengikuti ukuran data latih.</span></div>
-</div>
-
-<!-- ============ tabel metrik lengkap ============ -->
-<div class="panel gap-top">
-  <div class="ptitle-row"><h2>Angka Lengkap</h2></div>
-  <table class="tbl roomy"><thead><tr><th>Metrik <small>(satuan tertulis pada nilainya)</small></th>{% for x in runs %}<th class="num">{{ x.name }}</th>{% endfor %}</tr></thead><tbody>
-  {% for m in metric_rows %}<tr><td>{{ m.label|safe }}</td>{% for x in runs %}<td class="num"><b>{{ m.vals[x.algo] }}</b></td>{% endfor %}</tr>{% endfor %}
-  </tbody></table>
-  {% if has_labels %}
-  <div class="legend-note">{{ ic('info') }}<span><b>ROC-AUC dan PR-AUC tidak bersatuan</b> karena keduanya adalah luas di bawah kurva, bukan proporsi flow. Persennya ditulis beserta artinya supaya tidak tertukar dengan Accuracy: <b>ROC-AUC</b> = peluang sebuah flow serangan mendapat skor lebih tinggi daripada flow normal yang dipilih acak; <b>PR-AUC</b> = rata-rata precision di seluruh tingkat recall. Accuracy, Precision, Recall, dan F1-Score memang proporsi flow, jadi persennya dapat dibaca langsung.</span></div>
-  {% endif %}
-</div>
-
-{% if has_labels %}
-<div class="row cols-2 gap-top">
-  {% for x in runs %}<div class="panel"><div class="ptitle-row" style="margin-bottom:8px"><h2>Confusion Matrix</h2><span class="badge">{{ x.name }}</span></div>{{ confusion(x.cm) }}</div>{% endfor %}
-</div>
-
-<div class="panel gap-top">
-  <div class="ptitle-row"><h2>Recall per Jenis Serangan</h2></div>
-  <table class="tbl roomy"><thead><tr><th>Jenis serangan</th><th class="num">Jumlah <small>(flow)</small></th>{% for x in runs %}<th class="num">Recall {{ x.algo }}</th>{% endfor %}<th></th></tr></thead><tbody>
-  {% for t in types %}<tr class="{{ '' if t.cukup else 'muted' }}"><td>{{ t.jenis }}</td><td class="num">{{ t.n|fmt }}</td>
-    {% for x in runs %}{% set rv = t.vals[x.algo] %}<td class="num">{% if rv is not none %}<b>{{ rv|dec }}</b> <small class="muted">({{ rv|pctc }})</small>{% else %}-{% endif %}</td>{% endfor %}
-    <td class="small muted">{{ '' if t.cukup else 'sampel kecil, tidak dapat disimpulkan' }}</td></tr>{% endfor %}
-  </tbody></table>
-  <div class="legend-note">{{ ic('info') }}<span>Angka total bisa menutupi kelemahan pada jenis serangan tertentu. Jenis dengan sampel &lt; {{ min_n }} tidak dihitung pada macro recall.</span></div>
-</div>
-
-<div class="panel gap-top">
-  <div class="ptitle-row"><h2>Temuan Utama</h2></div>
-  <div class="row cols-2">
-  {% for x in runs %}<div class="findbox"><div class="fb-h">{{ ic('tree' if x.algo == 'IF' else 'lof') }}<b>{{ x.name }}</b></div><ul>{% for t in x.findings %}<li>{{ t }}</li>{% endfor %}</ul></div>{% endfor %}
-  </div>
 </div>
 {% endif %}
 {% endif %}

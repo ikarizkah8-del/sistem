@@ -1,7 +1,0 @@
-{# Penunjuk langkah pelatihan. Variabel: step (1-4) #}
-<div class="steps">
-  <a href="{{ url_for('pengaturan') }}" style="border-style:dashed">← Pengaturan</a>
-  {% for n, label, ep in [(1,'Dataset Latih','latih_dataset'),(2,'Preprocessing','latih_preprocessing'),(3,'Data Acuan','latih_acuan'),(4,'Pelatihan Model','latih_model')] %}
-  <a href="{{ url_for(ep) }}" class="{{ 'on' if n == step }}"><span class="no">{{ n }}</span>{{ label }}</a>
-  {% endfor %}
-</div>

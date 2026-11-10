@@ -2,14 +2,15 @@
 app.py — Sistem Deteksi Anomali Serangan DDoS (Isolation Forest & LOF), Flask + Python.
 Jalankan:  python app.py   lalu buka http://127.0.0.1:5000
 
-Halaman utama (sesuai desain):
-  Dashboard           : unggah dataset uji, pilih model, Mulai Uji Model, ringkasan, tabel, confusion matrix, distribusi
-  Uji Model           : form yang sama dengan opsi (FPR, batas baris, jalankan kedua model)
-  Hasil Deteksi       : seluruh hasil per flow (filter, halaman, unduh CSV)
-  Perbandingan Model  : IF vs LOF pada file yang sama (metrik, confusion matrix, recall per jenis, laporan)
-  Pengaturan          : model aktif, target FPR, model tersimpan, pengaman data latih, pelatihan model (opsional)
+Halaman utama (sesuai rancangan tampilan di folder tampilan/):
+  Dashboard           : vonis per ambang, kurva recall-FPR, kecepatan, macro recall, tabel empat kolom
+  Uji Model           : unggah + pilih model + opsi, lalu hasil deteksi per flow pada halaman yang sama
+  Perbandingan Model  : IF vs LOF pada kedua ambang (metrik, confusion matrix, recall per jenis, laporan PDF)
+  Pengaturan          : aturan yang dipakai tiap model tersimpan + pembersihan sesi
+  Riwayat             : hasil pengujian tersimpan, dibuka ulang atau dibandingkan tanpa unggah ulang
 
-Pengujian TIDAK melatih apa pun: sistem hanya memuat model tersimpan di folder models/ lalu mendeteksi file yang diunggah.
+Satu kali pengujian menghasilkan prediksi pada SELURUH target FPR yang dimiliki model: skor anomali
+dihitung sekali, lalu dibandingkan dengan tiap ambang. Pengujian TIDAK melatih apa pun.
 """
 import io
 import os
@@ -29,6 +30,7 @@ import numpy as np
 import pandas as pd
 import joblib
 import sklearn
+from sklearn.metrics import roc_curve
 import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
@@ -41,8 +43,10 @@ import core
 BASE = os.path.dirname(os.path.abspath(__file__))
 MODEL_DIR = os.environ.get("DDOS_MODEL_DIR", os.path.join(BASE, "models"))
 UPLOAD_DIR = os.environ.get("DDOS_UPLOAD_DIR", os.path.join(BASE, "uploads"))
+RUN_DIR = os.environ.get("DDOS_RUN_DIR", os.path.join(BASE, "runs"))
 os.makedirs(MODEL_DIR, exist_ok=True)
 os.makedirs(UPLOAD_DIR, exist_ok=True)
+os.makedirs(RUN_DIR, exist_ok=True)
 
 APP_TITLE = ("Penerapan Algoritma Isolation Forest untuk Deteksi Anomali "
              "Trafik Jaringan Serangan Distributed Denial of Service (DDoS)")
@@ -50,23 +54,23 @@ ALGO_NAME = {"IF": "Isolation Forest", "LOF": "Local Outlier Factor"}
 ALGO_DESC = {"IF": "Deteksi anomali berbasis<br>pohon keputusan", "LOF": "Deteksi anomali berbasis<br>kepadatan data"}
 OVERLAP_BLOCK = 0.5             # file deteksi ditolak jika >= 50% barisnya identik dengan data latih
 CHUNK = 20_000                  # skor dihitung per potongan agar kemajuan bisa ditampilkan
-PER_PAGE_DASH, PER_PAGE_HASIL = 10, 15
+PER_PAGE_HASIL = 10              # rincian per flow: 10 baris per halaman
 
 app = Flask(__name__)
 app.secret_key = "ganti-dengan-kunci-acak"
 app.config["MAX_CONTENT_LENGTH"] = 1024 * 1024 * 1024          # unggah maks. 1 GB
 
 LOCK = threading.RLock()
-# T = bagian PELATIHAN (dataset latih, opsional). D = bagian DETEKSI (file uji). Keduanya tidak saling memakai data.
-T = {"df": None, "fname": None, "label": None, "prep": None, "split": None, "trained": {}}
+# D = keadaan bagian DETEKSI: berkas uji yang dimuat beserta hasilnya. Sistem ini tidak melatih model.
 D = {"df": None, "fname": None, "fsize": 0, "runs": {}, "active": None, "t_load": 0.0, "max_rows": None, "fpr": None,
      "pending": None, "pending_file": None}
 SET = {"fpr": 0.05, "active": {}}
 JOB = {"state": "idle", "progress": 0.0, "stage": "", "started": None, "message": None, "category": "success",
        "control": "run", "cancelable": False, "paused_at": None, "paused_total": 0.0}
 
-NAV = [("dashboard", "Dashboard", "home"), ("uji", "Uji Model", "clipboard"), ("hasil", "Hasil Deteksi", "detect"),
-       ("perbandingan", "Perbandingan Model", "compare"), ("pengaturan", "Pengaturan", "gear")]
+NAV = [("dashboard", "Dashboard", "home"), ("uji", "Uji Model", "clipboard"),
+       ("perbandingan", "Perbandingan Model", "compare"), ("pengaturan", "Pengaturan", "gear"),
+       ("riwayat", "Riwayat", "clock")]
 
 
 class UserError(Exception):
@@ -120,6 +124,13 @@ def dur(sec):
     if m:
         return f"{m} menit {r} detik"
     return f"{r} detik"
+
+
+@app.template_filter("dtk")
+def dtk(sec):
+    """Waktu prediksi: selalu satu angka di belakang koma selama masih di bawah satu menit."""
+    sec = float(sec or 0)
+    return (f"{sec:.1f}".replace(".", ",") + " detik") if sec < 60 else dur(sec)
 
 
 def ratio_txt(v):
@@ -233,7 +244,7 @@ def inject():
         if JOB["state"] in ("done", "error") and JOB["message"]:
             msg = (JOB["category"], JOB["message"])
             JOB["message"] = None
-    return {"NAV": NAV, "ALGO_NAME": ALGO_NAME, "JOB": JOB, "job_msg": msg, "TRAIN": T}
+    return {"NAV": NAV, "ALGO_NAME": ALGO_NAME, "JOB": JOB, "job_msg": msg}
 
 
 # ============================================================================ model tersimpan
@@ -337,11 +348,6 @@ def current_fpr():
     return SET["fpr"] if SET["fpr"] in opts else (0.05 if 0.05 in opts else opts[0])
 
 
-def algo_cards(selected):
-    cards = []
-    for a in ("IF", "LOF"):
-        cards.append({"algo": a, "name": ALGO_NAME[a], "desc": ALGO_DESC[a], "ok": bool(active_key(a)), "key": active_key(a)})
-    return cards
 
 
 PREP_LABEL = {"raw": "Tanpa transformasi", "slog": "Signed log1p",
@@ -367,23 +373,6 @@ def param_text(k, v, n_features):
     return v
 
 
-def model_spec(algo, key=None):
-    """Profil model untuk ditampilkan (Dashboard & Perbandingan). Memakai metadata, tidak memuat objek model."""
-    key = key or active_key(algo)
-    spec = {"algo": algo, "name": ALGO_NAME[algo], "desc": ALGO_DESC[algo], "ok": False, "key": key}
-    if not key:
-        return spec
-    m = model_meta(key)
-    if "error" in m:
-        spec["error"] = m["error"]
-        return spec
-    spec.update(ok=True, seed=m.get("seed"), n_features=m.get("n_features"), n_train=m.get("n_train"),
-                trained_on=m.get("trained_on"), created=m.get("created"), sklearn=m.get("sklearn_version"),
-                prep=PREP_LABEL.get(m.get("preprocess"), m.get("preprocess")),
-                params=[(PARAM_LABEL.get(k, k), param_text(k, v, m.get("n_features")))
-                        for k, v in sorted((m.get("params") or {}).items())],
-                thresholds=sorted(m.get("thresholds") or [], key=lambda t: t[0]))
-    return spec
 
 
 # ============================================================================ pengaman: data latih terdaftar
@@ -444,15 +433,178 @@ def run_detection(df, name, key, b, fpr, max_rows, progress=None, seed=42):
         t_pred += t
         if progress:
             progress(min(1.0, (i + len(s)) / n))
-    thr = b["thresholds"][fpr]
-    pred = (score > thr).astype(int)
-    r = {"algo": b["model_name"], "key": key, "fname": name, "fpr": fpr, "thr": thr, "score": score, "pred": pred,
-         "rows": idx + 1, "t_pred": t_pred, "labels": None if labels is None else labels.values, "metrics": None,
-         "cm": None, "per": None, "n_file": n_file, "sampled": sampled, "stats": stats, "overlap": overlap,
-         "guard_fp": bool(fps), "id": time.time()}
-    if labels is not None:
-        r["metrics"], r["cm"], r["per"] = core.evaluate(labels.values, pred, score)
-    return r, None
+    lab_vals = None if labels is None else labels.values
+    # Skor dihitung SEKALI. Tiap target FPR hanya membandingkan skor yang sama dengan ambangnya masing-masing,
+    # jadi seluruh ambang tersedia tanpa biaya hitung tambahan.
+    by_fpr = {}
+    for f, th in sorted(b["thresholds"].items()):
+        p = (score > float(th)).astype(int)
+        e = {"thr": float(th), "pred": p, "metrics": None, "cm": None, "per": None}
+        if lab_vals is not None:
+            e["metrics"], e["cm"], e["per"] = core.evaluate(lab_vals, p, score)
+        by_fpr[float(f)] = e
+    r = {"algo": b["model_name"], "key": key, "fname": name, "score": score, "by_fpr": by_fpr,
+         "rows": idx + 1, "t_pred": t_pred, "labels": lab_vals, "n_file": n_file, "sampled": sampled,
+         "stats": stats, "overlap": overlap, "guard_fp": bool(fps), "id": time.time()}
+    return apply_view(r, fpr), None
+
+
+def apply_view(r, fpr):
+    """Menyalin hasil pada satu target FPR ke tingkat atas, supaya halaman cukup membaca r["pred"] dan r["thr"]."""
+    f = float(fpr)
+    if f not in r["by_fpr"]:
+        f = min(r["by_fpr"], key=lambda x: abs(x - f))
+    e = r["by_fpr"][f]
+    r.update(fpr=f, thr=e["thr"], pred=e["pred"], metrics=e["metrics"], cm=e["cm"], per=e["per"])
+    return r
+
+
+def view_fpr():
+    """Target FPR yang sedang ditampilkan untuk hasil yang ada di memori."""
+    runs = ordered_runs()
+    return runs[0][1]["fpr"] if runs else current_fpr()
+
+
+def all_fprs():
+    """Seluruh target FPR yang dimiliki hasil saat ini (urut naik)."""
+    runs = ordered_runs()
+    return sorted(runs[0][1]["by_fpr"]) if runs else fpr_options()
+
+
+def model_size(key):
+    path = bundle_files().get(key)
+    try:
+        return os.path.getsize(path) if path else 0
+    except OSError:
+        return 0
+
+
+def model_strip(key):
+    """Identitas model untuk pita di atas halaman: jumlah data acuan, parameter inti, dan ukuran berkas."""
+    m = model_meta(key) if key else {"error": "belum ada"}
+    if "error" in m:
+        return {"key": key, "ok": False}
+    p = m.get("params") or {}
+    if m.get("algo") == "IF":
+        inti = f"{fmt(p.get('n_estimators', 0))} pohon"
+    else:
+        inti = f"k = {fmt(p.get('n_neighbors', 0))}"
+    return {"key": key, "ok": True, "algo": m.get("algo"), "name": ALGO_NAME.get(m.get("algo"), m.get("algo")),
+            "seed": m.get("seed"), "n_train": m.get("n_train"), "inti": inti, "size": mbsize(model_size(key))}
+
+
+def acuan_terbesar():
+    """Jumlah data acuan terbesar di antara seluruh model tersimpan (pembanding untuk peringatan)."""
+    vals = [model_meta(k).get("n_train") or 0 for k in bundle_files() if "error" not in model_meta(k)]
+    return max(vals) if vals else 0
+
+
+# ============================================================================ riwayat pengujian (folder runs/)
+def _per_rows(per):
+    return [] if per is None else [[str(i), int(row["n"]), float(row["Recall"])] for i, row in per.iterrows()]
+
+
+def _clean(v):
+    if v is None:
+        return None
+    v = float(v)
+    return None if math.isnan(v) else v
+
+
+def riwayat_simpan():
+    """Menyimpan skor dan ringkasan satu pengujian ke folder runs/ supaya bisa dibuka lagi tanpa unggah ulang."""
+    runs = ordered_runs()
+    if not runs:
+        return None
+    base = runs[0][1]
+    rid = time.strftime("%Y%m%d-%H%M%S")
+    arrays = {"rows": np.asarray(base["rows"])}
+    if base["labels"] is not None:
+        arrays["labels"] = np.asarray(base["labels"]).astype(str)
+    rec = {"id": rid, "created": time.strftime("%Y-%m-%d %H:%M"), "fname": base["fname"],
+           "n_rows": int(len(base["pred"])), "n_file": int(base["n_file"]), "sampled": bool(base["sampled"]),
+           "max_rows": D["max_rows"], "fpr_shown": float(base["fpr"]), "fprs": sorted(base["by_fpr"]),
+           "n_features": int(base["stats"]["n_features"]), "has_labels": base["labels"] is not None, "algos": {}}
+    for a, r in runs:
+        arrays[f"score_{a}"] = r["score"].astype("float32")
+        m = model_meta(r["key"])
+        rec["algos"][a] = {
+            "key": r["key"], "name": ALGO_NAME[a], "seed": m.get("seed"), "n_train": m.get("n_train"),
+            "params": m.get("params"), "size": model_size(r["key"]), "t_pred": float(r["t_pred"]),
+            "t_total": float(r.get("t_total", r["t_pred"])),
+            "by_fpr": {str(f): {"thr": e["thr"],
+                                "metrics": None if e["metrics"] is None else {k: _clean(v) for k, v in e["metrics"].items()},
+                                "cm": None if e["cm"] is None else [[int(x) for x in row] for row in e["cm"]],
+                                "per": _per_rows(e["per"])}
+                       for f, e in sorted(r["by_fpr"].items())}}
+    np.savez_compressed(os.path.join(RUN_DIR, f"{rid}.npz"), **arrays)
+    with open(os.path.join(RUN_DIR, f"{rid}.json"), "w") as fh:
+        json.dump(rec, fh)
+    return rid
+
+
+def riwayat_list():
+    out = []
+    for p in sorted(glob.glob(os.path.join(RUN_DIR, "*.json")), reverse=True):
+        try:
+            with open(p) as fh:
+                out.append(json.load(fh))
+        except (OSError, ValueError):
+            continue
+    return out
+
+
+def riwayat_get(rid):
+    p = os.path.join(RUN_DIR, f"{os.path.basename(str(rid))}.json")
+    if not os.path.isfile(p):
+        return None
+    try:
+        with open(p) as fh:
+            return json.load(fh)
+    except (OSError, ValueError):
+        return None
+
+
+def riwayat_hapus(rid):
+    for ext in (".json", ".npz"):
+        try:
+            os.remove(os.path.join(RUN_DIR, f"{os.path.basename(str(rid))}{ext}"))
+        except OSError:
+            pass
+
+
+def riwayat_ukuran():
+    return sum(os.path.getsize(p) for p in glob.glob(os.path.join(RUN_DIR, "*")) if os.path.isfile(p))
+
+
+def riwayat_muat(rid):
+    """Memuat kembali hasil tersimpan ke memori, sehingga Uji Model dan Perbandingan menampilkannya lagi."""
+    rec = riwayat_get(rid)
+    if rec is None:
+        raise UserError("Riwayat tidak ditemukan.")
+    z = np.load(os.path.join(RUN_DIR, f"{os.path.basename(str(rid))}.npz"), allow_pickle=True)
+    rows = z["rows"]
+    labels = z["labels"].astype(str) if "labels" in z.files else None
+    newruns = {}
+    for a, info in rec["algos"].items():
+        score = z[f"score_{a}"].astype("float64")
+        by = {}
+        for fs, e in info["by_fpr"].items():
+            p = (score > float(e["thr"])).astype(int)
+            item = {"thr": float(e["thr"]), "pred": p, "metrics": None, "cm": None, "per": None}
+            if labels is not None:
+                item["metrics"], item["cm"], item["per"] = core.evaluate(labels, p, score)
+            by[float(fs)] = item
+        r = {"algo": a, "key": info["key"], "fname": rec["fname"], "score": score, "by_fpr": by, "rows": rows,
+             "t_pred": info["t_pred"], "t_total": info.get("t_total", info["t_pred"]), "labels": labels,
+             "n_file": rec["n_file"], "sampled": rec["sampled"], "stats": {"n_features": rec["n_features"]},
+             "overlap": None, "guard_fp": False, "id": rec["id"]}
+        newruns[a] = apply_view(r, rec["fpr_shown"])
+    with LOCK:
+        D.update(df=None, fname=rec["fname"], fsize=0, runs=newruns,
+                 active=("IF" if "IF" in newruns else next(iter(newruns))), t_load=0.0,
+                 max_rows=rec.get("max_rows"), fpr=rec["fpr_shown"], pending=None, pending_file=None)
+    return rec
 
 
 def job_detect(algos, upload_path, upload_name, upload_size, fpr, max_rows):
@@ -469,9 +621,13 @@ def job_detect(algos, upload_path, upload_name, upload_size, fpr, max_rows):
     else:
         with LOCK:
             if D["df"] is None:
-                raise UserError("Unggah file CSV uji terlebih dahulu.")
-            if D["fpr"] != fpr or D["max_rows"] != max_rows:
-                D.update(runs={}, active=None, max_rows=max_rows, fpr=fpr)
+                raise UserError("Unggah file CSV uji terlebih dahulu. Hasil dari Riwayat hanya dapat dilihat, "
+                                "tidak dapat diuji ulang tanpa berkasnya.")
+            if D["max_rows"] != max_rows:                   # hanya batas baris yang membuat hasil lama tidak berlaku
+                D.update(runs={}, active=None, max_rows=max_rows)
+            D["fpr"] = fpr
+            for r in D["runs"].values():                    # ambang yang ditampilkan boleh berubah tanpa hitung ulang
+                apply_view(r, fpr)
     n_alg = len(algos)
     for i, algo in enumerate(algos):
         job_control()
@@ -491,7 +647,13 @@ def job_detect(algos, upload_path, upload_name, upload_size, fpr, max_rows):
             D["active"] = algo
     names = " dan ".join(ALGO_NAME[a] for a in algos)
     n = len(D["runs"][algos[-1]]["pred"])
-    return f"Deteksi selesai: {fmt(n)} flow diperiksa dengan {names}."
+    nf = len(all_fprs())
+    try:
+        riwayat_simpan()
+    except Exception:                                                 # noqa: BLE001
+        traceback.print_exc()                                         # riwayat gagal disimpan tidak membatalkan hasil
+    return (f"Deteksi selesai: {fmt(n)} flow diperiksa dengan {names} pada {nf} target FPR. "
+            f"Hasilnya tersimpan di Riwayat.")
 
 
 # ============================================================================ bantuan tampilan
@@ -533,45 +695,6 @@ def cm_view(cm, model_name):
             "model_name": model_name, "total": total}
 
 
-def bar_svg(cats, series):
-    """Diagram batang berkelompok sebagai SVG (tanpa pustaka luar). series = [(label, warna, [nilai per kategori])]."""
-    W, H, ml, mr, mt, mb = 680, 430, 90, 30, 78, 68
-    pw, ph = W - ml - mr, H - mt - mb
-    vmax = max(max(v) for _, _, v in series) or 1
-    step = nice_step(vmax, 6)
-    nst = max(1, math.ceil(vmax / step))
-    top = step * nst
-    grand = sum(sum(v) for _, _, v in series) or 1
-    out = [f'<svg viewBox="0 0 {W} {H}" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Distribusi prediksi">']
-    for i in range(nst + 1):
-        y = mt + ph - ph * i / nst
-        out.append(f'<line x1="{ml}" y1="{y:.1f}" x2="{W - mr}" y2="{y:.1f}" stroke="#e6edf6" stroke-width="1"/>')
-        out.append(f'<text x="{ml - 12}" y="{y + 4.5:.1f}" text-anchor="end" font-size="12" fill="#52617f">{fmt(i * step)}</text>')
-    gw = pw / len(cats)
-    bw = gw * (0.42 if len(series) == 1 else 0.3)
-    gap = gw * 0.05
-    for ci, cat in enumerate(cats):
-        total_w = len(series) * bw + (len(series) - 1) * gap
-        x0 = ml + gw * ci + (gw - total_w) / 2
-        for si, (lab, col, vals) in enumerate(series):
-            v = vals[ci]
-            h = ph * v / top if top else 0
-            x = x0 + si * (bw + gap)
-            y = mt + ph - h
-            out.append(f'<rect x="{x:.1f}" y="{y:.1f}" width="{bw:.1f}" height="{max(h, 0):.1f}" rx="5" fill="{col}"/>')
-            out.append(f'<text x="{x + bw / 2:.1f}" y="{y - 24:.1f}" text-anchor="middle" font-size="15" font-weight="700" fill="#17315c">{fmt(v)}</text>')
-            out.append(f'<text x="{x + bw / 2:.1f}" y="{y - 9:.1f}" text-anchor="middle" font-size="11.5" fill="#6b7893">{v / grand * 100:.1f}%</text>')
-        out.append(f'<text x="{ml + gw * ci + gw / 2:.1f}" y="{mt + ph + 26}" text-anchor="middle" font-size="13.5" font-weight="600" fill="#2a3a57">{cat}</text>')
-    out.append(f'<line x1="{ml}" y1="{mt + ph}" x2="{W - mr}" y2="{mt + ph}" stroke="#b9c6da" stroke-width="1"/>')
-    out.append(f'<text x="{ml + pw / 2:.1f}" y="{H - 10}" text-anchor="middle" font-size="12.5" font-weight="600" fill="#52617f">Jenis Trafik</text>')
-    out.append(f'<text transform="translate(16 {mt + ph / 2:.1f}) rotate(-90)" text-anchor="middle" font-size="12.5" font-weight="600" fill="#52617f">Jumlah Data</text>')
-    lx = ml  # legenda di pita atas kiri agar tidak bertabrakan dengan angka di atas batang
-    for lab, col, _ in series:
-        out.append(f'<rect x="{lx:.1f}" y="13" width="13" height="13" rx="3" fill="{col}"/>')
-        out.append(f'<text x="{lx + 19:.1f}" y="24" font-size="12.5" fill="#2a3a57">{lab}</text>')
-        lx += 19 + len(lab) * 7.2 + 26
-    out.append("</svg>")
-    return "".join(out)
 
 
 def window(page, pages, width=5):
@@ -612,122 +735,176 @@ def file_chip():
 
 
 # ============================================================================ halaman: Dashboard (hanya menampilkan)
+ALGO_COLOR = {"IF": "#2670d4", "LOF": "#1f9460"}
+
+
+def roc_points(r, max_fpr=0.08, n=70):
+    """Kurva recall (TPR) terhadap FPR aktual, dihitung dari skor anomali dan label yang sudah ada."""
+    if r["labels"] is None:
+        return []
+    y = (np.asarray(r["labels"]) != core.BENIGN).astype(int)
+    if len(np.unique(y)) < 2:
+        return []
+    f, t, _ = roc_curve(y, r["score"])
+    keep = f <= max_fpr
+    f, t = f[keep], t[keep]
+    if len(f) > n:
+        sel = np.linspace(0, len(f) - 1, n).astype(int)
+        f, t = f[sel], t[sel]
+    return [(float(a), float(b)) for a, b in zip(f, t)]
+
+
+def curve_svg(series, max_fpr=0.08):
+    """Kurva recall terhadap FPR aktual untuk kedua model, beserta titik operasi tiap target FPR."""
+    W, H, ml, mr, mt, mb = 640, 300, 56, 24, 22, 54
+    pw, ph = W - ml - mr, H - mt - mb
+    px = lambda v: ml + pw * min(v, max_fpr) / max_fpr
+    py = lambda v: mt + ph - ph * v
+    out = [f'<svg viewBox="0 0 {W} {H}" xmlns="http://www.w3.org/2000/svg" role="img" '
+           f'aria-label="Kurva recall terhadap FPR aktual">']
+    for i in range(5):
+        y = mt + ph - ph * i / 4
+        out.append(f'<line x1="{ml}" y1="{y:.1f}" x2="{W - mr}" y2="{y:.1f}" stroke="#e6edf6" stroke-width="1"/>')
+        out.append(f'<text x="{ml - 10}" y="{y + 4:.1f}" text-anchor="end" font-size="11" fill="#6b7893">{i * 25}%</text>')
+    for i in range(5):
+        x = ml + pw * i / 4
+        out.append(f'<text x="{x:.1f}" y="{mt + ph + 18}" text-anchor="middle" font-size="11" '
+                   f'fill="#6b7893">{max_fpr * 100 * i / 4:.0f}%</text>')
+    out.append(f'<text x="{ml + pw / 2:.1f}" y="{H - 8}" text-anchor="middle" font-size="11.5" '
+               f'fill="#52617f">FPR aktual (alarm palsu)</text>')
+    out.append(f'<text x="{ml - 46}" y="{mt - 6}" font-size="11.5" fill="#52617f">Recall</text>')
+    for lab, col, pts, ops in series:
+        if pts:
+            d = " ".join(f"{'M' if i == 0 else 'L'}{px(a):.1f} {py(b):.1f}" for i, (a, b) in enumerate(pts))
+            out.append(f'<path d="{d}" fill="none" stroke="{col}" stroke-width="2.2" stroke-linejoin="round"/>')
+    for lab, col, pts, ops in series:
+        for f, rec, tag, below in ops:
+            x, y = px(f), py(rec)
+            out.append(f'<circle cx="{x:.1f}" cy="{y:.1f}" r="5.5" fill="{col}" stroke="#ffffff" stroke-width="2"/>')
+            ty = y + 20 if below else y - 11
+            out.append(f'<text x="{x:.1f}" y="{ty:.1f}" text-anchor="middle" font-size="11" fill="{col}">{tag}</text>')
+    out.append("</svg>")
+    return "".join(out)
+
+
+BARIS_METRIK = [
+    {"label": "Accuracy", "key": "Accuracy", "tetap": False},
+    {"label": "Precision", "key": "Precision", "tetap": False},
+    {"label": "Recall", "key": "Recall", "tetap": False},
+    {"label": "F1-Score", "key": "F1", "tetap": False},
+    {"label": "FPR aktual", "key": "FPR", "tetap": False},
+    {"label": "Macro recall per jenis", "key": "Macro_Recall_Mayor", "tetap": False},
+    {"label": "ROC-AUC", "key": "ROC_AUC", "tetap": True},
+    {"label": "PR-AUC", "key": "PR_AUC", "tetap": True},
+]
+
+
+def kolom_hasil(fprs, algos, isi=False):
+    """Kolom tabel hasil: satu kolom per pasangan (model, target FPR), urut dari ambang paling longgar."""
+    out = []
+    for f in fprs:
+        for a in algos:
+            c = {"algo": a, "fpr": f, "label": f"{a} @ {pctc(f, 0)}", "color": ALGO_COLOR[a]}
+            if isi:
+                c["vals"] = {b["key"]: nilai(a, f, b["key"]) for b in BARIS_METRIK}
+            out.append(c)
+    return out
+
+
+def nilai(algo, fpr, key):
+    r = D["runs"].get(algo)
+    e = r["by_fpr"].get(fpr) if r else None
+    if not e or e["metrics"] is None:
+        return None
+    v = e["metrics"].get(key)
+    return None if v is None or (isinstance(v, float) and math.isnan(v)) else float(v)
+
+
+def vonis(fprs):
+    """Model mana yang unggul pada tiap target FPR, beserta alasan singkatnya."""
+    runs = ordered_runs()
+    out = []
+    for f in fprs:
+        cand = [(a, r["by_fpr"][f]["metrics"]) for a, r in runs
+                if f in r["by_fpr"] and r["by_fpr"][f]["metrics"] is not None]
+        if len(cand) < 2:
+            continue
+        cand.sort(key=lambda x: -x[1]["F1"])
+        (wa, wm), (la, lm) = cand[0], cand[1]
+        out.append({"fpr": f, "algo": wa, "name": ALGO_NAME[wa], "color": ALGO_COLOR[wa],
+                    "f1": wm["F1"], "f1_lain": lm["F1"], "recall": wm["Recall"], "recall_lain": lm["Recall"],
+                    "fn": wm["FN"], "n_att": wm["FN"] + wm["TP"], "lain": ALGO_NAME[la]})
+    return out
+
+
 @app.route("/")
 def dashboard():
-    """Gambaran umum: profil model aktif, asal data latihnya, dan ringkasan deteksi terakhir.
+    """Ringkasan penelitian: model mana unggul pada tiap ambang, kurva recall-FPR, kecepatan, dan angka lengkap.
     Halaman ini tidak mengubah apa pun — pengujian dijalankan di halaman Uji Model."""
     runs = ordered_runs()
-    act = D["active"] if D["active"] in D["runs"] else (runs[0][0] if runs else None)
-    r = D["runs"].get(act) if act else None
-    # Rincian tiap model tidak ditampilkan di sini, hanya jumlah yang siap pakai (lihat Perbandingan Model).
-    n_ready = sum(1 for a in ("IF", "LOF") if model_spec(a)["ok"])
-    ctx = {"nav": "dashboard", "n_models": len(bundle_files()), "fpr_now": current_fpr(),
-           "n_ready": n_ready, "fname": D["fname"], "r": r, "run_algos": [a for a, _ in runs]}
-    if r is not None:
-        n = len(r["pred"])
-        n_att = int(r["pred"].sum())
-        ctx["st"] = {"total": n, "n_att": n_att, "n_norm": n - n_att, "p_att": n_att / n, "p_norm": (n - n_att) / n,
-                     "time": r.get("t_total", r["t_pred"]), "model_short": act}
-        ctx["has_labels"] = r["labels"] is not None
-        if r["metrics"] is not None:
-            ctx["cm"] = cm_view(r["cm"], ALGO_NAME[act])
-            ctx["metrics"] = [(ic_, nm, {a: x["metrics"][k] for a, x in runs if x["metrics"] is not None})
-                              for ic_, nm, k in (("target", "Accuracy", "Accuracy"), ("precision", "Precision", "Precision"),
-                                                 ("recall", "Recall", "Recall"), ("star", "F1-Score", "F1"))]
-        colors = {"IF": "#2670d4", "LOF": "#37ac77"}
-        ctx["chart_svg"] = bar_svg(["Normal", "DDoS"], [(ALGO_NAME[a] if a == "IF" else "LOF", colors[a],
-                                                         [int((x["pred"] == 0).sum()), int((x["pred"] == 1).sum())])
-                                                        for a, x in runs])
+    algos = [a for a, _ in runs]
+    strips = [model_strip(active_key(a)) for a in ("IF", "LOF")]
+    besar = acuan_terbesar()
+    kecil = [s for s in strips if s["ok"] and (s["n_train"] or 0) < besar]
+    ctx = {"nav": "dashboard", "strips": strips, "n_models": len(bundle_files()),
+           "acuan_besar": besar, "acuan_kecil": kecil, "fname": D["fname"],
+           "run_algos": algos, "ada": bool(runs)}
+    if not runs:
+        return render_template("dashboard.html", **ctx)
+
+    fprs = sorted(all_fprs(), reverse=True)
+    has_labels = runs[0][1]["labels"] is not None
+    ctx.update(fprs=fprs, has_labels=has_labels, cols=kolom_hasil(fprs, algos),
+               n_rows=len(runs[0][1]["pred"]), sampled=runs[0][1]["sampled"], n_file=runs[0][1]["n_file"],
+               speed=[{"algo": a, "name": ALGO_NAME[a], "t": r["t_pred"], "color": ALGO_COLOR[a],
+                       "frac": r["t_pred"] / (max(x["t_pred"] for _, x in runs) or 1)} for a, r in runs])
+    if has_labels:
+        ctx["cols"] = kolom_hasil(fprs, algos, isi=True)
+        ctx["baris"] = BARIS_METRIK
+        ctx["vonis"] = vonis(fprs)
+        ctx["macro"] = [{"algo": a, "name": ALGO_NAME[a], "color": ALGO_COLOR[a],
+                         "v": nilai(a, runs[0][1]["fpr"], "Macro_Recall_Mayor")} for a, _ in runs]
+        series = []
+        for a, r in runs:
+            ops = [(nilai(a, f, "FPR"), nilai(a, f, "Recall"), f"{a} @{pctc(f, 0)}", f < 0.03)
+                   for f in fprs if nilai(a, f, "FPR") is not None]
+            series.append((a, ALGO_COLOR[a], roc_points(r), ops))
+        ctx["curve"] = curve_svg(series)
     return render_template("dashboard.html", **ctx)
 
 
 # ============================================================================ halaman: Uji Model + aksi Mulai Uji
 @app.route("/uji", methods=["GET", "POST"])
 def uji():
+    """Unggah, pilih model, jalankan — lalu hasil deteksi per flow tampil di halaman yang sama."""
     if request.method == "POST":
         return uji_post()
-    rows = [model_meta(active_key(a)) | {"name": ALGO_NAME[a]} for a in ("IF", "LOF") if active_key(a)]
-    feats = rows[0]["features"] if rows else []
+    feats, cards = [], []
+    for a in ("IF", "LOF"):
+        k = active_key(a)
+        m = model_meta(k) if k else {}
+        if k and not feats:
+            feats = m.get("features") or []
+        cards.append({"algo": a, "name": ALGO_NAME[a], "desc": ALGO_DESC[a], "ok": bool(k), "key": k,
+                      "options": [{"key": o, "n": model_meta(o).get("n_train")} for o in algo_keys().get(a, [])],
+                      "n_train": m.get("n_train")})
     runs = ordered_runs()
-    act = D["active"] if D["active"] in D["runs"] else None
-    cards = algo_cards(act)
-    # Berkas yang sedang dimuat: dicek terhadap syarat kolom supaya pengguna tahu sebelum menekan Mulai.
+    algos = [a for a, _ in runs]
+    sel = D["pending"] if D["pending"] in ("IF", "LOF", "BOTH") else None
+    if sel is None:
+        sel = "BOTH" if len(algos) > 1 else (algos[0] if algos else next((c["algo"] for c in cards if c["ok"]), "IF"))
     finfo = None
-    if D["df"] is not None:
+    if D["df"] is not None:                       # dicek terhadap syarat kolom supaya ketahuan sebelum tombol ditekan
         lab = core.find_label(D["df"])
         miss = [f for f in feats if f not in D["df"].columns]
         finfo = {"rows": len(D["df"]), "cols": D["df"].shape[1], "label": lab, "n_missing": len(miss),
                  "missing": miss[:6], "fname": D["fname"], "fsize": mbsize(D["fsize"])}
-    last = [{"algo": a, "name": ALGO_NAME[a], "key": x["key"], "n": len(x["pred"]),
-             "n_att": int(x["pred"].sum()), "fpr": x["fpr"], "thr": x["thr"],
-             "t": x.get("t_total", x["t_pred"]), "sampled": x["sampled"], "n_file": x["n_file"],
-             "acc": (x["metrics"]["Accuracy"] if x["metrics"] is not None else None)} for a, x in runs]
-    return render_template("uji.html", nav="uji", algos=cards,
-                           selected=act or D["pending"] or next((c["algo"] for c in cards if c["ok"]), "IF"), **file_chip(),
-                           model_rows=rows, features=feats, n_features=len(feats), fpr_options=fpr_options(),
-                           fpr_now=D["fpr"] or current_fpr(), max_rows=D["max_rows"], next="uji",
-                           finfo=finfo, last=last)
-
-
-def uji_post():
-    target = "dashboard" if request.form.get("next") == "dashboard" else "uji"
-    if JOB["state"] == "running":
-        flash("Masih ada proses yang berjalan. Tunggu sampai selesai.", "warning")
-        return redirect(url_for(target))
-    algo = request.form.get("algo", "IF")
-    algos = ["IF", "LOF"] if request.form.get("both") == "1" else [algo if algo in ALGO_NAME else "IF"]
-    fpr = D["fpr"] if (D["df"] is not None and "fpr" not in request.form) else None
-    try:
-        fpr = float(request.form["fpr"]) if "fpr" in request.form else (fpr or current_fpr())
-    except ValueError:
-        fpr = current_fpr()
-    if "max_rows" in request.form:
-        mr = request.form.get("max_rows", "").strip()
-        max_rows = int(mr) if mr.isdigit() and int(mr) > 0 else None
-    else:
-        max_rows = D["max_rows"] if D["df"] is not None else None
-
-    f = request.files.get("file")
-    path = name = None
-    size = 0
-    if f and f.filename:
-        if not f.filename.lower().endswith(".csv"):
-            flash("Pilih file .csv.", "danger")
-            return redirect(url_for(target))
-        name = f.filename
-        path = os.path.join(UPLOAD_DIR, os.path.basename(name))
-        f.save(path)
-        size = os.path.getsize(path)
-        if "train" in name.lower():
-            flash(f"Nama file '{name}' mengandung 'train'. Pastikan ini bukan data latih.", "warning")
-    elif D["df"] is None:
-        flash("Unggah file CSV uji terlebih dahulu.", "danger")
-        return redirect(url_for(target))
-    for a in algos:
-        if not active_key(a):
-            flash(f"Model {ALGO_NAME[a]} belum tersedia. Salin file .joblib ke folder models/ atau latih model di Pengaturan.", "danger")
-            return redirect(url_for(target))
-    D["pending"] = algos[-1]
-    D["pending_file"] = (name, size) if path else None
-    run_job(job_detect, algos, path, name, size, fpr, max_rows, cancelable=True)
-    return redirect(url_for(target))
-
-
-@app.route("/hapus-file", methods=["POST"])
-def hapus_file():
-    with LOCK:
-        D.update(df=None, fname=None, fsize=0, runs={}, active=None, t_load=0.0, max_rows=None, fpr=None,
-                 pending=None, pending_file=None)
-    return "ok"
-
-
-# ============================================================================ halaman: Hasil Deteksi
-@app.route("/hasil")
-def hasil():
-    runs = ordered_runs()
+    ctx = {"nav": "uji", "algos": cards, "selected": sel, "features": feats, "n_features": len(feats),
+           "fpr_options": fpr_options(), "fpr_now": D["fpr"] or current_fpr(), "max_rows": D["max_rows"],
+           "finfo": finfo, "ada": bool(runs), "acuan_besar": acuan_terbesar(), **file_chip()}
     if not runs:
-        return render_template("hasil.html", nav="hasil", r=None)
-    algos = [a for a, _ in runs]
+        return render_template("uji.html", **ctx)
+
     m = request.args.get("m") if request.args.get("m") in algos else (D["active"] if D["active"] in algos else algos[0])
     flt = request.args.get("f", "all")
     base = D["runs"][m]
@@ -750,25 +927,78 @@ def hasil():
     total = len(idx)
     pages = max(1, math.ceil(total / PER_PAGE_HASIL))
     page = min(max(1, int(request.args.get("p", 1))), pages)
-    sel = idx[(page - 1) * PER_PAGE_HASIL: page * PER_PAGE_HASIL]
-    # Ringkasan dipakai sebagai kartu yang sekaligus menjadi pintasan filter.
+    sel_idx = idx[(page - 1) * PER_PAGE_HASIL: page * PER_PAGE_HASIL]
     n = len(pred)
     summ = {"all": n, "ddos": int(pred.sum()), "normal": int((pred == 0).sum())}
     if has_labels:
-        summ.update(salah=int((actual != pred).sum()),
-                    fp=int(((actual == 0) & (pred == 1)).sum()),
+        summ.update(salah=int((actual != pred).sum()), fp=int(((actual == 0) & (pred == 1)).sum()),
                     fn=int(((actual == 1) & (pred == 0)).sum()))
-    # Skor anomali tidak bersatuan dan skalanya beda tiap algoritma; yang memberi arti adalah ambangnya.
-    thr_by = {a: D["runs"][a]["thr"] for a in algos}
-    meta = {"fname": D["fname"], "key": base["key"], "name": ALGO_NAME[m], "fpr": base["fpr"], "thr": base["thr"],
+    meta = {"fname": base["fname"], "key": base["key"], "name": ALGO_NAME[m], "fpr": base["fpr"], "thr": base["thr"],
             "t": base.get("t_total", base["t_pred"]), "n_file": base["n_file"], "sampled": base["sampled"],
-            "n_features": base["stats"]["n_features"]}
-    return render_template("hasil.html", nav="hasil", r=base, run_algos=algos, m=m, flt=flt, has_labels=has_labels,
-                           fname=D["fname"], rows=table_rows(sel, runs, labels), total=total, page=page, pages=pages,
-                           page_window=window(page, pages), start=(page - 1) * PER_PAGE_HASIL + 1 if total else 0,
-                           end=min(total, page * PER_PAGE_HASIL), summ=summ, meta=meta, thr_by=thr_by)
+            "n_features": base["stats"]["n_features"],
+            "model_txt": " + ".join(D["runs"][a]["key"] for a in algos),
+            "t_txt": " + ".join(dtk(D["runs"][a]["t_pred"]) for a in algos),
+            "acuan": model_meta(base["key"]).get("n_train")}
+    ctx.update(run_algos=algos, m=m, flt=flt, has_labels=has_labels, rows=table_rows(sel_idx, runs, labels),
+               total=total, page=page, pages=pages, page_window=window(page, pages),
+               start=(page - 1) * PER_PAGE_HASIL + 1 if total else 0, end=min(total, page * PER_PAGE_HASIL),
+               summ=summ, meta=meta, thr_by={a: D["runs"][a]["thr"] for a in algos},
+               strips=[model_strip(D["runs"][a]["key"]) for a in algos])
+    return render_template("uji.html", **ctx)
 
 
+def uji_post():
+    if JOB["state"] == "running":
+        flash("Masih ada proses yang berjalan. Tunggu sampai selesai.", "warning")
+        return redirect(url_for("uji"))
+    pilih = request.form.get("algo", "IF")
+    algos = ["IF", "LOF"] if pilih == "BOTH" else [pilih if pilih in ALGO_NAME else "IF"]
+    for a in ("IF", "LOF"):                       # seed dipilih langsung di kartu modelnya
+        v = request.form.get(f"key_{a}")
+        if v and v in algo_keys().get(a, []):
+            SET["active"][a] = v
+    try:
+        fpr = float(request.form["fpr"]) if "fpr" in request.form else (D["fpr"] or current_fpr())
+    except ValueError:
+        fpr = current_fpr()
+    mr = request.form.get("max_rows", "").strip()
+    max_rows = int(mr) if mr.isdigit() and int(mr) > 0 else None
+
+    f = request.files.get("file")
+    path = name = None
+    size = 0
+    if f and f.filename:
+        if not f.filename.lower().endswith(".csv"):
+            flash("Pilih file .csv.", "danger")
+            return redirect(url_for("uji"))
+        name = f.filename
+        path = os.path.join(UPLOAD_DIR, os.path.basename(name))
+        f.save(path)
+        size = os.path.getsize(path)
+        if "train" in name.lower():
+            flash(f"Nama file '{name}' mengandung 'train'. Pastikan ini bukan data latih.", "warning")
+    elif D["df"] is None:
+        flash("Unggah berkas CSV uji terlebih dahulu.", "danger")
+        return redirect(url_for("uji"))
+    for a in algos:
+        if not active_key(a):
+            flash(f"Model {ALGO_NAME[a]} belum tersedia. Salin berkas .joblib ke folder models/.", "danger")
+            return redirect(url_for("uji"))
+    D["pending"] = pilih if pilih in ("IF", "LOF", "BOTH") else algos[-1]
+    D["pending_file"] = (name, size) if path else None
+    run_job(job_detect, algos, path, name, size, fpr, max_rows, cancelable=True)
+    return redirect(url_for("uji"))
+
+
+@app.route("/hapus-file", methods=["POST"])
+def hapus_file():
+    with LOCK:
+        D.update(df=None, fname=None, fsize=0, runs={}, active=None, t_load=0.0, max_rows=None, fpr=None,
+                 pending=None, pending_file=None)
+    return "ok"
+
+
+# ============================================================================ unduhan hasil per flow
 def result_frame():
     runs = ordered_runs()
     base = runs[0][1]
@@ -804,58 +1034,80 @@ def comparison():
     return items
 
 
+def temuan_ringkas(fprs, algos):
+    """Tiga kalimat temuan untuk layar. Uraian lengkapnya ada di laporan PDF."""
+    out = []
+    v = vonis(fprs)
+    if len(v) >= 2:
+        a, b = v[0], v[1]
+        out.append(f"Pada target FPR {pctc(a['fpr'], 0)} {a['name']} unggul (F1 {pctc(a['f1'], 2)} berbanding "
+                   f"{pctc(a['f1_lain'], 2)}), sedangkan pada {pctc(b['fpr'], 0)} {b['name']} yang unggul "
+                   f"(recall {pctc(b['recall'], 2)} berbanding {pctc(b['recall_lain'], 2)}).")
+    elif v:
+        a = v[0]
+        out.append(f"Pada target FPR {pctc(a['fpr'], 0)}, {a['name']} unggul dengan F1 {pctc(a['f1'], 2)} "
+                   f"berbanding {pctc(a['f1_lain'], 2)}.")
+    runs = ordered_runs()
+    if len(runs) > 1:
+        cepat = min(runs, key=lambda kv: kv[1]["t_pred"])
+        lambat = max(runs, key=lambda kv: kv[1]["t_pred"])
+        kali = (lambat[1]["t_pred"] / cepat[1]["t_pred"]) if cepat[1]["t_pred"] else 0
+        out.append(f"{ALGO_NAME[cepat[0]]} {dec(kali, 1)} kali lebih cepat "
+                   f"({dtk(cepat[1]['t_pred'])} berbanding {dtk(lambat[1]['t_pred'])}) dan berkasnya "
+                   f"{mbsize(model_size(cepat[1]['key']))} berbanding {mbsize(model_size(lambat[1]['key']))}.")
+    mac = [(a, nilai(a, fprs[0], "Macro_Recall_Mayor")) for a in algos]
+    mac = [(a, m) for a, m in mac if m is not None]
+    if len(mac) > 1:
+        mac.sort(key=lambda x: -x[1])
+        out.append(f"Macro recall per jenis serangan berbeda jauh: {ALGO_NAME[mac[0][0]]} {pctc(mac[0][1], 2)} "
+                   f"berbanding {ALGO_NAME[mac[1][0]]} {pctc(mac[1][1], 2)}, sehingga keduanya saling melengkapi "
+                   f"sebagai penyaring awal dan pemeriksa lanjutan.")
+    return out
+
+
 @app.route("/perbandingan")
 def perbandingan():
-    items = comparison()
-    if not items:
-        return render_template("perbandingan.html", nav="perbandingan", runs=[])
-    has_labels = items[0]["r"]["metrics"] is not None
-    rows = []
-
-    def add(label, fn):
-        rows.append({"label": label, "vals": {x["algo"]: fn(x["r"]) for x in items}})
-    add("Flow diperiksa", lambda r: f"{fmt(len(r['pred']))} flow")
-    add("Prediksi DDoS", lambda r: f"{fmt(int(r['pred'].sum()))} flow ({pctc(r['pred'].mean())})")
+    runs = ordered_runs()
+    if not runs:
+        return render_template("perbandingan.html", nav="perbandingan", ada=False)
+    algos = [a for a, _ in runs]
+    fprs = sorted(all_fprs(), reverse=True)
+    try:
+        shown = float(request.args.get("fpr", runs[0][1]["fpr"]))
+    except ValueError:
+        shown = runs[0][1]["fpr"]
+    if shown not in fprs:
+        shown = runs[0][1]["fpr"]
+    has_labels = runs[0][1]["labels"] is not None
+    ctx = {"nav": "perbandingan", "ada": True, "fname": D["fname"], "run_algos": algos, "fprs": fprs,
+           "shown": shown, "has_labels": has_labels, "min_n": core.MIN_TYPE_N,
+           "strips": [model_strip(D["runs"][a]["key"]) for a in algos],
+           "cols": kolom_hasil(fprs, algos), "n_rows": len(runs[0][1]["pred"]),
+           "sizes": {a: mbsize(model_size(D["runs"][a]["key"])) for a in algos},
+           "waktu": {a: D["runs"][a]["t_pred"] for a in algos},
+           "satu_model": len(algos) < 2}
+    seeds = {model_meta(D["runs"][a]["key"]).get("seed") for a in algos}
+    acuan = {model_meta(D["runs"][a]["key"]).get("n_train") for a in algos}
+    ctx["seed_mismatch"] = (", ".join(f"{ALGO_NAME[a]}: {model_meta(D['runs'][a]['key']).get('seed')}" for a in algos)
+                            if len(seeds) > 1 else None)
+    ctx["acuan_mismatch"] = (", ".join(f"{ALGO_NAME[a]}: {fmt(model_meta(D['runs'][a]['key']).get('n_train') or 0)}"
+                                       for a in algos) if len(acuan) > 1 else None)
     if has_labels:
-        for lab, k in (("Accuracy", "Accuracy"), ("Precision", "Precision"), ("Recall", "Recall"), ("F1-Score", "F1")):
-            add(lab, lambda r, k=k: ratio_txt(r["metrics"][k]))
-        # AUC adalah luas di bawah kurva: tanpa satuan. Persennya diberi nama artinya, bukan "benar sekian persen".
-        for lab, k, how in (("ROC-AUC", "ROC_AUC", "peluang"), ("PR-AUC", "PR_AUC", "rata-rata precision")):
-            add(lab, lambda r, k=k, how=how: auc_txt(r["metrics"][k], how))
-        add("FPR aktual", lambda r: pctc(r["metrics"]["FPR"]))
-        add(f"Macro recall (jenis ≥ {core.MIN_TYPE_N} flow)", lambda r: ratio_txt(r["metrics"]["Macro_Recall_Mayor"]))
-    add("Waktu prediksi", lambda r: f"{r['t_pred']:.1f} detik".replace(".", ","))
-    add("Target FPR / threshold", lambda r: f"{pctc(r['fpr'], 0)} / {dec(r['thr'], 4)} skor")
-    types = []
-    if has_labels:
+        ctx["cols"] = kolom_hasil(fprs, algos, isi=True)
+        ctx["baris"] = BARIS_METRIK
+        ctx["cms"] = [{"algo": a, "name": ALGO_NAME[a], "color": ALGO_COLOR[a],
+                       "cm": cm_view(D["runs"][a]["by_fpr"][shown]["cm"], ALGO_NAME[a])} for a in algos]
         allt = {}
-        for x in items:
-            for jenis, row in x["r"]["per"].iterrows():
-                allt.setdefault(jenis, {"n": int(row["n"]), "vals": {}})["vals"][x["algo"]] = float(row["Recall"])
-        for jenis, v in sorted(allt.items(), key=lambda kv: -kv[1]["n"]):
-            types.append({"jenis": jenis, "n": v["n"], "vals": {x["algo"]: v["vals"].get(x["algo"]) for x in items},
-                          "cukup": v["n"] >= core.MIN_TYPE_N})
-    fprs = {x["r"]["fpr"] for x in items}
-    seeds = {model_meta(x["r"]["key"]).get("seed") for x in items}
-    seed_mismatch = ", ".join(f"{x['name']}: {model_meta(x['r']['key']).get('seed')}" for x in items) if len(seeds) > 1 else None
-    # Rincian model yang BENAR-BENAR dipakai pada run ini (bukan sekadar model aktif saat ini).
-    specs = [model_spec(x["algo"], x["r"]["key"]) for x in items]
-    bars, speed = [], []
-    if has_labels:
-        for lab, k in (("Accuracy", "Accuracy"), ("Precision", "Precision"), ("Recall", "Recall"), ("F1-Score", "F1")):
-            vals = [{"algo": x["algo"], "name": x["name"], "v": float(x["r"]["metrics"][k])} for x in items]
-            best = max((v["v"] for v in vals), default=0)
-            for v in vals:
-                v["best"] = len(vals) > 1 and v["v"] >= best > 0
-            bars.append({"label": lab, "models": vals})   # bukan "items": bentrok dengan dict.items di Jinja
-    tmax = max((x["r"]["t_pred"] for x in items), default=1) or 1
-    for x in items:
-        speed.append({"algo": x["algo"], "name": x["name"], "t": x["r"]["t_pred"],
-                      "frac": x["r"]["t_pred"] / tmax,
-                      "fastest": len(items) > 1 and x["r"]["t_pred"] <= min(y["r"]["t_pred"] for y in items)})
-    return render_template("perbandingan.html", nav="perbandingan", runs=items, metric_rows=rows, types=types,
-                           has_labels=has_labels, fname=D["fname"], min_n=core.MIN_TYPE_N, fpr_mismatch=len(fprs) > 1,
-                           seed_mismatch=seed_mismatch, specs=specs, bars=bars, speed=speed)
+        for a in algos:
+            per = D["runs"][a]["by_fpr"][shown]["per"]
+            for jenis, row in per.iterrows():
+                allt.setdefault(jenis, {"n": int(row["n"]), "vals": {}})["vals"][a] = float(row["Recall"])
+        ctx["types"] = [{"jenis": j, "n": v["n"], "vals": {a: v["vals"].get(a) for a in algos},
+                         "cukup": v["n"] >= core.MIN_TYPE_N}
+                        for j, v in sorted(allt.items(), key=lambda kv: -kv[1]["n"])]
+        ctx["macro"] = {a: nilai(a, shown, "Macro_Recall_Mayor") for a in algos}
+        ctx["temuan"] = temuan_ringkas(fprs, algos)
+    return render_template("perbandingan.html", **ctx)
 
 
 # ============================================================================ laporan PDF perbandingan
@@ -1198,232 +1450,108 @@ def laporan_unduh():
 # ============================================================================ halaman: Pengaturan
 @app.route("/pengaturan", methods=["GET", "POST"])
 def pengaturan():
+    """Hanya memperlihatkan aturan tiap model tersimpan. Model aktif dipilih di halaman Uji Model."""
     if request.method == "POST":
-        act = request.form.get("aksi")
-        if act == "simpan":
-            for a in ("IF", "LOF"):
-                v = request.form.get(f"active_{a}")
-                if v:
-                    SET["active"][a] = v
-            try:
-                SET["fpr"] = float(request.form.get("fpr", SET["fpr"]))
-            except ValueError:
-                pass
-            with LOCK:
-                D.update(runs={}, active=None, fpr=None)
-            flash("Pengaturan disimpan. Hasil deteksi sebelumnya dihapus.", "success")
-        elif act == "reset":
+        if request.form.get("aksi") == "reset":
             hapus_file()
-            flash("File uji dan hasil deteksi dihapus dari memori.", "success")
+            flash("Berkas uji dan hasil deteksi dihapus dari memori.", "success")
         return redirect(url_for("pengaturan"))
-    algos = [{"algo": a, "name": ALGO_NAME[a], "options": algo_keys().get(a, []), "active": active_key(a)} for a in ("IF", "LOF")]
-    return render_template("pengaturan.html", nav="pengaturan", algos=algos, fpr_options=fpr_options(), fpr_now=current_fpr(),
-                           rows=bundle_rows())
-
-
-# ============================================================================ detail model
-def tree_png(b, idx, depth):
-    m = b["model"]
-    idx = max(0, min(idx, len(m.estimators_) - 1))
-    names = [b["features"][i] for i in m.estimators_features_[idx]]
-    fig, ax = plt.subplots(figsize=(15, 5.5))
-    plot_tree(m.estimators_[idx], max_depth=depth, feature_names=names, impurity=False, filled=True, fontsize=7, ax=ax)
-    ax.set_title(f"Isolation Tree #{idx} (ditampilkan sampai kedalaman {depth})")
-    buf = io.BytesIO()
-    fig.savefig(buf, format="png", dpi=110, bbox_inches="tight")
-    plt.close(fig)
-    return base64.b64encode(buf.getvalue()).decode()
-
-
-@app.route("/model")
-def model():
-    ok = [k for k in bundle_files() if "error" not in model_meta(k)]
-    key = request.args.get("m") if request.args.get("m") in ok else (ok[0] if ok else None)
-    b = get_bundle(key) if key else None
-    tree_idx = int(request.args.get("tree", 0))
-    depth = int(request.args.get("depth", 3))
-    img = tree_png(b, tree_idx, depth) if b is not None and b["model_name"] == "IF" else None
-    version_warn = b is not None and b.get("sklearn_version") not in (None, sklearn.__version__)
-    params_fmt = ([(PARAM_LABEL.get(k, k), param_text(k, v, len(b["features"])))
-                   for k, v in sorted((b.get("params") or {}).items())] if b else [])
-    return render_template("model.html", nav="pengaturan", key=key, b=b, thr=sorted(b["thresholds"].items()) if b else [],
-                           img=img, tree_idx=tree_idx, depth=depth, sk_ver=sklearn.__version__,
-                           version_warn=version_warn, params_fmt=params_fmt)
-
-
-@app.route("/model/unduh")
-def model_unduh():
-    key = request.args.get("m")
-    b = get_bundle(key) if key else None
-    if b is None:
-        abort(404)
-    buf = io.BytesIO()
-    joblib.dump(b, buf, compress=3)
-    buf.seek(0)
-    return send_file(buf, as_attachment=True, download_name=f"{key}.joblib")
-
-
-# ============================================================================ pelatihan (opsional, dari Pengaturan)
-def reset_train(stage):
-    if stage == "data":
-        T["prep"] = T["split"] = None
-        T["trained"] = {}
-    elif stage == "prep":
-        T["split"] = None
-        T["trained"] = {}
-    elif stage == "split":
-        T["trained"] = {}
-
-
-MSG = {"tdata": ("Muat dataset latih terlebih dahulu.", "latih_dataset"),
-       "tlabel": ("Dataset latih membutuhkan kolom label (untuk memilih trafik normal sebagai data acuan).", "latih_dataset"),
-       "tprep": ("Jalankan Preprocessing terlebih dahulu.", "latih_preprocessing"),
-       "tsplit": ("Tetapkan Data Acuan terlebih dahulu.", "latih_acuan")}
-
-
-def train_missing(*items):
-    for it in items:
-        ok = {"tdata": T["df"] is not None, "tlabel": T["label"] is not None,
-              "tprep": T["prep"] is not None, "tsplit": T["split"] is not None}[it]
-        if not ok:
-            return MSG[it]
-    return None
-
-
-def blocked(title, step):
-    return render_template("blocked.html", nav="pengaturan", title=title, msg=step[0], link=step[1])
-
-
-def load_train(path, name):
-    df = core.read_csv(path)
-    with LOCK:
-        T.update(df=df, fname=name, label=core.find_label(df))
-        reset_train("data")
-    flash(f"Dataset latih dimuat: {name} ({fmt(len(df))} baris).", "success")
-
-
-@app.route("/latih/dataset", methods=["GET", "POST"])
-def latih_dataset():
-    if request.method == "POST":
-        act = request.form.get("aksi")
-        try:
-            if act == "unggah":
-                f = request.files.get("file")
-                if not f or not f.filename.lower().endswith(".csv"):
-                    flash("Pilih file .csv.", "danger")
-                    return redirect(url_for("latih_dataset"))
-                path = os.path.join(UPLOAD_DIR, os.path.basename(f.filename))
-                f.save(path)
-                load_train(path, f.filename)
-            elif act == "label":
-                v = request.form.get("label")
-                T["label"] = None if v == "__none__" else v
-                reset_train("data")
-                flash("Kolom label diperbarui.", "success")
-        except Exception as e:                                        # noqa: BLE001
-            flash(f"Gagal membaca dataset: {e}", "danger")
-        return redirect(url_for("latih_dataset"))
-    if T["df"] is None:
-        return render_template("latih_dataset.html", nav="pengaturan", info=None)
-    df = T["df"]
-    info = core.dataset_info(df, T["label"])
-    dist = None
-    if T["label"]:
-        d = info["dist"].rename_axis("Label").reset_index(name="Jumlah")
-        d["Porsi"] = (d["Jumlah"] / d["Jumlah"].sum() * 100).round(2)
-        dist = d.to_dict("records")
-    preview = df.head(50)
-    return render_template("latih_dataset.html", nav="pengaturan", info=info, dist=dist, cols=list(df.columns),
-                           preview_cols=list(preview.columns), preview=preview.astype(str).values.tolist())
-
-
-@app.route("/latih/preprocessing", methods=["GET", "POST"])
-def latih_preprocessing():
-    step = train_missing("tdata", "tlabel")
-    if step:
-        return blocked("Preprocessing Data Latih", step)
-    features = core.candidate_features(T["df"], T["label"])
-    if request.method == "POST" and request.form.get("aksi") == "daftar":
-        if T["prep"] is None:
-            flash("Jalankan Preprocessing terlebih dahulu.", "warning")
-            return redirect(url_for("latih_preprocessing"))
-        name = "latih_" + os.path.splitext(os.path.basename(T["fname"]))[0] + ".fp.npz"
-        core.save_fingerprint(os.path.join(MODEL_DIR, name), T["prep"]["X"][T["prep"]["features"]].values,
-                              T["prep"]["features"], T["fname"])
-        flash(f"Dataset {T['fname']} didaftarkan sebagai data latih. Pengujian akan menolak file yang berisi data ini. "
-              f"Tidak ada model yang dilatih.", "success")
-        return redirect(url_for("latih_preprocessing"))
-    if request.method == "POST":
-        drop_dup = request.form.get("drop_dup") == "1"
-        X, labels, log, stats = core.preprocess(T["df"], T["label"], features, drop_dup)
-        with LOCK:
-            T["prep"] = {"X": X, "labels": labels, "log": log, "stats": stats, "features": features}
-            reset_train("prep")
-        flash("Preprocessing selesai.", "success")
-        return redirect(url_for("latih_preprocessing"))
-    src = f"fitur numerik tidak konstan, tanpa label/identitas/port ({len(features)} fitur)"
-    return render_template("latih_preprocessing.html", nav="pengaturan", src=src, prep=T["prep"])
-
-
-@app.route("/latih/acuan", methods=["GET", "POST"])
-def latih_acuan():
-    step = train_missing("tdata", "tlabel", "tprep")
-    if step:
-        return blocked("Data Acuan Pelatihan", step)
-    if request.method == "POST":
-        seed = int(request.form.get("seed", 42))
-        sp = core.data_acuan(T["prep"]["labels"])                     # SEMUA trafik normal, tanpa pembagian dan tanpa batas
-        with LOCK:
-            T["split"] = {**sp, "seed": seed, "id": time.time()}
-            reset_train("split")
-        flash("Data acuan ditetapkan.", "success")
-        return redirect(url_for("latih_acuan"))
-    return render_template("latih_acuan.html", nav="pengaturan", sp=T["split"])
-
-
-def job_train(algo, params, fprs, key):
-    sp, feats, X = T["split"], T["prep"]["features"], T["prep"]["X"]
-    set_stage(f"Melatih {ALGO_NAME[algo]} dari {fmt(len(sp['fit']))} baris data normal...", 0.15)
-    b = core.train_bundle(algo, params, X.iloc[sp["fit"]][feats].values, feats, fprs, sp["seed"], trained_on=T["fname"])
-    set_stage("Menyimpan model dan sidik jari data latih...", 0.9)
-    fp_name = "latih_" + os.path.splitext(os.path.basename(T["fname"]))[0] + ".fp.npz"
-    core.save_fingerprint(os.path.join(MODEL_DIR, fp_name), X[feats].values, feats, T["fname"])
-    b["train_fp"] = fp_name
-    core.save_bundle(b, MODEL_DIR, key)
-    META.pop(key, None)
-    with LOCK:
-        T["trained"][algo] = {"key": key, "b": b}
-    return f"Model {key} dilatih ({b['fit_time_s']:.1f} detik) dan disimpan ke folder models/."
-
-
-@app.route("/latih/model", methods=["GET", "POST"])
-def latih_model():
-    step = train_missing("tdata", "tlabel", "tprep", "tsplit")
-    if step:
-        return blocked("Pelatihan Model", step)
-    algo = request.values.get("algo", "IF")
-    algo = algo if algo in ALGO_NAME else "IF"
-    if request.method == "POST":
-        if JOB["state"] == "running":
-            flash("Masih ada proses yang berjalan. Tunggu sampai selesai.", "warning")
-            return redirect(url_for("latih_model", algo=algo))
-        if algo == "IF":
-            ms = request.form.get("max_samples", "2048")
-            params = {"n_estimators": int(request.form.get("n_estimators", 300)),
-                      "max_samples": ms if ms == "auto" else int(ms),
-                      "max_features": float(request.form.get("max_features", 0.5)),
-                      "log_input": request.form.get("log_input") == "1"}
+    besar = acuan_terbesar()
+    fprs = sorted(fpr_options(), reverse=True)
+    rows = []
+    for k in bundle_files():
+        m = model_meta(k)
+        if "error" in m:
+            rows.append({"key": k, "error": m["error"]})
+            continue
+        p = m.get("params") or {}
+        if m.get("algo") == "IF":
+            par = f"{fmt(p.get('n_estimators', 0))} pohon · mf {dec(p.get('max_features', 0), 1)}"
         else:
-            params = {"n_neighbors": int(request.form.get("n_neighbors", 50))}
-        fprs = [float(f) for f in request.form.getlist("fpr")] or [0.05]
-        key = f"{algo}_seed{T['split']['seed']}"
-        if os.path.exists(os.path.join(MODEL_DIR, f"{key}.joblib")) and request.form.get("timpa") != "1":
-            flash(f"Model {key}.joblib sudah ada. Centang 'Timpa model lama' atau ganti seed di Data Acuan.", "danger")
-            return redirect(url_for("latih_model", algo=algo))
-        run_job(job_train, algo, params, fprs, key)
-        return redirect(url_for("latih_model", algo=algo))
-    return render_template("latih_model.html", nav="pengaturan", algo=algo, sp=T["split"], res=T["trained"].get(algo),
-                           n_models=len(bundle_files()))
+            par = f"k = {fmt(p.get('n_neighbors', 0))}"
+        thr = {float(f): v for f, v in (m.get("thresholds") or [])}
+        rows.append({"key": k, "algo": m.get("algo"), "name": ALGO_NAME.get(m.get("algo"), m.get("algo")),
+                     "seed": m.get("seed"), "n_train": m.get("n_train") or 0, "par": par,
+                     "prep": PREP_LABEL.get(m.get("preprocess"), m.get("preprocess")),
+                     "n_features": m.get("n_features"), "size": mbsize(model_size(k)),
+                     "thr": [thr.get(f) for f in fprs], "kecil": (m.get("n_train") or 0) < besar})
+    rows.sort(key=lambda r: (r.get("algo") or "zz", -(r.get("n_train") or 0), r["key"]))
+    return render_template("pengaturan.html", nav="pengaturan", rows=rows, fprs=fprs, acuan_besar=besar,
+                           n_kecil=sum(1 for r in rows if r.get("kecil")))
+
+
+# ============================================================================ halaman: Riwayat
+def _rec_view(rec):
+    algos = rec.get("algos", {})
+    urut = [a for a in ("IF", "LOF") if a in algos]
+    f = str(rec.get("fpr_shown"))
+    f1 = {}
+    for a in urut:
+        mm = (algos[a]["by_fpr"].get(f) or {}).get("metrics")
+        f1[a] = None if not mm else mm.get("F1")
+    return {"id": rec["id"], "created": rec.get("created", ""), "fname": rec.get("fname", ""),
+            "model_txt": " + ".join(algos[a]["key"] for a in urut),
+            "acuan": max((algos[a].get("n_train") or 0) for a in urut) if urut else 0,
+            "ambang": " & ".join(pctc(x, 0) for x in sorted(rec.get("fprs", []), reverse=True)),
+            "n_rows": rec.get("n_rows", 0), "f1": f1, "algos": urut, "rec": rec}
+
+
+@app.route("/riwayat")
+def riwayat():
+    views = [_rec_view(r) for r in riwayat_list()]
+    besar = acuan_terbesar()
+    for v in views:
+        v["kecil"] = 0 < v["acuan"] < besar
+    pilih = [p for p in request.args.getlist("sel") if any(v["id"] == p for v in views)]
+    for v in views:
+        v["dipilih"] = v["id"] in pilih
+    banding = None
+    if len(pilih) >= 2:
+        sub = [v for v in views if v["id"] in pilih]
+        baris = []
+        for v in sub:
+            for a in v["algos"]:
+                info = v["rec"]["algos"][a]
+                f = str(v["rec"].get("fpr_shown"))
+                mm = (info["by_fpr"].get(f) or {}).get("metrics") or {}
+                baris.append({"tanggal": v["created"], "key": info["key"], "name": info["name"],
+                              "seed": info.get("seed"), "n_train": info.get("n_train") or 0,
+                              "par": info.get("params"), "fpr": v["rec"].get("fpr_shown"),
+                              "recall": mm.get("Recall"), "f1": mm.get("F1"), "fpr_akt": mm.get("FPR"),
+                              "t": info.get("t_pred")})
+        banding = {"baris": baris, "n": len(sub)}
+    return render_template("riwayat.html", nav="riwayat", views=views, pilih=pilih, banding=banding,
+                           total=len(views), ukuran=mbsize(riwayat_ukuran()),
+                           n_berkas=len({v["fname"] for v in views}))
+
+
+@app.route("/riwayat/lihat/<rid>")
+def riwayat_lihat(rid):
+    try:
+        rec = riwayat_muat(rid)
+    except UserError as e:
+        flash(str(e), "danger")
+        return redirect(url_for("riwayat"))
+    flash(f"Riwayat {rec['created']} dimuat: {rec['fname']}. Berkas CSV-nya tidak ikut tersimpan, "
+          f"jadi pengujian ulang membutuhkan unggahan baru.", "success")
+    return redirect(url_for("uji"))
+
+
+@app.route("/riwayat/hapus/<rid>", methods=["POST"])
+def riwayat_hapus_satu(rid):
+    riwayat_hapus(rid)
+    flash("Satu riwayat dihapus.", "success")
+    return redirect(url_for("riwayat"))
+
+
+@app.route("/riwayat/hapus-semua", methods=["POST"])
+def riwayat_hapus_semua():
+    n = 0
+    for rec in riwayat_list():
+        riwayat_hapus(rec["id"])
+        n += 1
+    flash(f"{fmt(n)} riwayat dihapus.", "success")
+    return redirect(url_for("riwayat"))
 
 
 if __name__ == "__main__":

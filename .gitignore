@@ -1,8 +1,15 @@
-# --- File besar (melebihi batas 100 MB GitHub / tidak perlu di-versioning) ---
-sistem_deteksi_ddos/models/*.joblib
+# ============================================================================
+# Berkas yang melebihi batas 100 MB GitHub.
+# Dipindahkan antar-komputer lewat flashdisk — lihat bagian "Berkas besar" di README.md.
+# ============================================================================
 sistem_deteksi_ddos/uploads/*.csv
+sistem_deteksi_ddos/models/LOF_seed42.joblib
 
-# --- Dokumen skripsi (belum di-push) ---
+# --- Riwayat pengujian: dibuat ulang sendiri setiap kali menguji ---
+sistem_deteksi_ddos/runs/*.npz
+sistem_deteksi_ddos/runs/*.json
+
+# --- Naskah skripsi: tidak ikut karena repositori ini publik ---
 *.docx
 *.doc
 *.pdf
@@ -18,6 +25,9 @@ env/
 *.egg-info/
 .pytest_cache/
 .ipynb_checkpoints/
+
+# --- Perkakas pengembangan ---
+.claude/
 
 # --- OS / editor ---
 Thumbs.db

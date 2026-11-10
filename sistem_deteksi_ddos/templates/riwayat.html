@@ -1,0 +1,104 @@
+{% extends "base.html" %}{% from "_icons.html" import ic %}
+{% block pagetitle %}Riwayat — DDoS Detection{% endblock %}
+{% block title %}Riwayat{% endblock %}
+{% block sub %}Hasil pengujian yang tersimpan. Buka kembali atau bandingkan tanpa mengunggah ulang berkas CSV.{% endblock %}
+{% block content %}
+
+<div class="panel rw-head">
+  <div class="grow">
+    <div class="rw-n">{{ total|fmt }} pengujian tersimpan</div>
+    <div class="small muted">dari {{ n_berkas|fmt }} berkas uji &middot; menempati {{ ukuran }}{% if pilih %}
+      &middot; {{ pilih|length }} baris terpilih{% endif %}</div>
+  </div>
+  {% if total %}
+  <div class="rowflex">
+    <button form="selform" class="btn btn-primary" type="submit">{{ ic('compare') }} Bandingkan terpilih</button>
+    <form method="post" action="{{ url_for('riwayat_hapus_semua') }}"
+          onsubmit="return confirm('Hapus seluruh riwayat? Tindakan ini tidak dapat dibatalkan.')">
+      <button class="btn btn-danger" type="submit">{{ ic('trash') }} Hapus semua riwayat</button></form>
+  </div>
+  {% endif %}
+</div>
+
+{% if not total %}
+<div class="panel gap-top"><div class="empty">{{ ic('clock') }}Belum ada riwayat.<br>
+  Setiap pengujian yang selesai tersimpan di sini secara otomatis.
+  <div class="mt-2"><a class="btn btn-primary btn-sm" href="{{ url_for('uji') }}">{{ ic('play') }} Ke Uji Model</a></div></div></div>
+{% else %}
+
+<div class="panel gap-top">
+  <div class="ptitle-row"><h2>Riwayat pengujian</h2>
+    <span class="small muted">centang dua baris atau lebih untuk membandingkan konfigurasi</span></div>
+
+  <form method="get" id="selform">
+  <table class="tbl roomy">
+    <thead><tr>
+      <th style="width:42px"></th><th>Tanggal</th><th>Berkas uji</th><th>Model</th>
+      <th class="num">Data acuan</th><th class="num">Ambang</th><th class="num">Baris</th>
+      <th class="num">F1 IF</th><th class="num">F1 LOF</th><th></th>
+    </tr></thead>
+    <tbody>
+    {% for v in views %}
+    <tr class="{{ 'kecil' if v.kecil }}">
+      <td><input type="checkbox" name="sel" value="{{ v.id }}" {{ 'checked' if v.dipilih }}></td>
+      <td class="nowrap">{{ v.created }}</td>
+      <td class="break">{{ v.fname }}</td>
+      <td class="small">{{ v.model_txt }}</td>
+      <td class="num">{{ v.acuan|fmt }}</td>
+      <td class="num">{{ v.ambang }}</td>
+      <td class="num">{{ v.n_rows|fmt }}</td>
+      <td class="num">{% if v.f1.IF is not none %}{{ v.f1.IF|pctc(2) }}{% else %}&mdash;{% endif %}</td>
+      <td class="num">{% if v.f1.LOF is not none %}{{ v.f1.LOF|pctc(2) }}{% else %}&mdash;{% endif %}</td>
+      <td class="right nowrap">
+        <a class="btn btn-ghost btn-sm" href="{{ url_for('riwayat_lihat', rid=v.id) }}">Lihat</a>
+      </td>
+    </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  </form>
+
+  <div class="rw-del">
+    {% for v in views %}
+    <form method="post" action="{{ url_for('riwayat_hapus_satu', rid=v.id) }}"
+          onsubmit="return confirm('Hapus riwayat {{ v.created }} ({{ v.fname }})?')">
+      <button class="btn btn-ghost btn-sm" type="submit">{{ ic('trash') }} Hapus {{ v.created }}</button></form>
+    {% endfor %}
+  </div>
+
+  <div class="legend-note">{{ ic('info') }}<span>Menekan <b>Lihat</b> membuka kembali hasilnya di halaman Uji Model,
+    lengkap dengan rincian per flow pada seluruh ambang. Yang disimpan hanya skor anomali dan ringkasan hasil,
+    bukan salinan berkas CSV-nya, sehingga riwayat tetap ringan dan pengujian ulang tetap membutuhkan unggahan baru.</span></div>
+</div>
+
+{% if banding %}
+<div class="panel gap-top">
+  <div class="ptitle-row"><h2>Perbandingan {{ banding.n }} konfigurasi terpilih</h2>
+    <a class="btn btn-ghost btn-sm" href="{{ url_for('riwayat') }}">Bersihkan pilihan</a></div>
+  <table class="tbl roomy">
+    <thead><tr><th>Tanggal</th><th>Berkas model</th><th class="num">Seed</th><th class="num">Data acuan</th>
+      <th>Parameter</th><th class="num">Ambang</th><th class="num">Recall</th><th class="num">F1-Score</th>
+      <th class="num">FPR aktual</th><th class="num">Waktu</th></tr></thead>
+    <tbody>
+    {% for b in banding.baris %}
+    <tr>
+      <td class="nowrap small">{{ b.tanggal }}</td>
+      <td><b>{{ b.key }}</b></td>
+      <td class="num">{{ b.seed if b.seed is not none else '-' }}</td>
+      <td class="num">{{ b.n_train|fmt }}</td>
+      <td class="small muted">{{ b.par }}</td>
+      <td class="num">{{ b.fpr|pctc(0) }}</td>
+      <td class="num">{% if b.recall is not none %}{{ b.recall|pctc(2) }}{% else %}&mdash;{% endif %}</td>
+      <td class="num">{% if b.f1 is not none %}{{ b.f1|pctc(2) }}{% else %}&mdash;{% endif %}</td>
+      <td class="num">{% if b.fpr_akt is not none %}{{ b.fpr_akt|pctc(2) }}{% else %}&mdash;{% endif %}</td>
+      <td class="num">{{ b.t|dtk }}</td>
+    </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  <div class="legend-note">{{ ic('info') }}<span>Tabel ini disusun langsung oleh sistem dari riwayat, lengkap dengan
+    nama berkas model dan jumlah data acuannya, sehingga angka dan model yang menghasilkannya tidak dapat tertukar.</span></div>
+</div>
+{% endif %}
+{% endif %}
+{% endblock %}

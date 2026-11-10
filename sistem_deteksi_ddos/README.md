@@ -1,62 +1,54 @@
-# Sistem Deteksi Anomali Serangan DDoS (Isolation Forest & LOF) — Flask
+# sistem_deteksi_ddos — catatan teknis
 
-Aplikasi web lokal (Flask + Python, tanpa Streamlit) untuk **menguji model yang sudah dibangun** pada file uji baru.
-Tampilan tidak memakai CDN: CSS dan ikon sudah ada di dalam proyek, jadi berjalan juga tanpa internet.
+Petunjuk pemasangan, pemindahan berkas besar, dan cara memakai ada di [README utama](../README.md)
+di akar repositori. Berkas ini hanya memuat catatan teknis bagi yang ingin membaca kodenya.
 
-## Halaman
-| Menu | Isi |
+## Susunan berkas
+
+| Berkas / folder | Isi |
 |---|---|
-| **Dashboard** | Unggah dataset uji, pilih model (Isolation Forest / LOF), **Mulai Uji Model**, ringkasan (total, normal, serangan, waktu proses), tabel hasil, confusion matrix + metrik, distribusi prediksi |
-| **Uji Model** | Formulir yang sama dengan opsi: target alarm palsu (FPR), batas jumlah baris, jalankan kedua model sekaligus |
-| **Hasil Deteksi** | Seluruh hasil per flow: filter (DDoS / Normal / salah deteksi), halaman, skor anomali, unduh CSV |
-| **Perbandingan Model** | IF vs LOF pada file yang sama: metrik lengkap, confusion matrix, recall per jenis serangan, temuan, unduh laporan (.md) |
-| **Pengaturan** | Model aktif (seed), target FPR, daftar model tersimpan, pelatihan model (opsional), hapus sesi |
+| `app.py` | Rute halaman, proses latar belakang (thread + bilah kemajuan), penyusunan laporan PDF |
+| `core.py` | Praproses, perhitungan skor anomali, evaluasi, dan pengaman data latih |
+| `templates/` | Halaman Jinja2: `dashboard`, `uji`, `perbandingan`, `pengaturan`, `riwayat`, plus `base`, `_icons`, `_widgets`, `_strip` |
+| `static/style.css` | Seluruh gaya tampilan; tidak memakai CDN sehingga berjalan tanpa internet |
+| `models/` | Berkas model `.joblib`, metadata `.meta.json`, dan sidik jari data latih `.fp.npz` |
+| `uploads/` | Berkas CSV yang diunggah pengguna |
+| `runs/` | Riwayat pengujian: satu `.npz` (skor per flow) dan satu `.json` (ringkasan) per pengujian |
 
-## Cara menjalankan (Windows, VS Code)
+## Alur deteksi
+
+1. `core.read_csv` membaca berkas, `core.sample_rows` mengambil sampel berstratifikasi bila ada batas baris.
+2. `core.preprocess` mengganti nilai tak hingga dan kosong dengan 0, lalu menyusun kolom sesuai daftar
+   fitur yang tersimpan di dalam model.
+3. Sidik jari tiap baris dibandingkan dengan `*.fp.npz`. Bila 50% atau lebih baris identik dengan data
+   latih, pengujian ditolak.
+4. `core.anomaly_score` menghitung skor per potongan 20.000 baris agar kemajuan dapat ditampilkan dan
+   pemakaian memori terkendali.
+5. **Skor dihitung sekali**, lalu dibandingkan dengan setiap ambang di `b["thresholds"]`. Hasil tiap
+   ambang disimpan di `r["by_fpr"]`; `apply_view()` menyalin salah satunya ke tingkat atas untuk
+   ditampilkan. Inilah yang membuat tabel empat kolom tersedia tanpa biaya hitung tambahan.
+6. Hasilnya disimpan ke `runs/` oleh `riwayat_simpan()` dan dapat dimuat kembali oleh `riwayat_muat()`.
+
+## Isi berkas model (.joblib)
+
+Satu berkas model memuat seluruh yang dibutuhkan untuk menilai data baru, sehingga tidak ada aturan
+praproses yang tercecer di luar model:
+
 ```
-python -m venv venv
-venv\Scripts\activate
-pip install -r requirements.txt
-python app.py
-```
-Buka http://127.0.0.1:5000. Gunakan Python 3.10–3.12.
-
-## Cara menguji
-1. Salin file model `.joblib` ke folder `models/` (mis. `IF_seed42.joblib`, `LOF_seed42.joblib`).
-2. Di **Dashboard**, pilih file CSV uji (klik atau seret), pilih model, lalu klik **Mulai Uji Model**.
-   Proses berjalan di latar belakang: bilah kemajuan muncul di bagian atas halaman.
-3. Untuk membandingkan, pilih model lainnya dan klik **Mulai Uji Model** lagi (file yang sama tidak perlu diunggah ulang),
-   atau centang "jalankan kedua model sekaligus" di **Uji Model**. Hasilnya muncul di **Perbandingan Model**.
-
-**Pengujian tidak melatih apa pun.** Sistem hanya memuat model tersimpan lalu mendeteksi seluruh isi file yang diunggah.
-Pembersihan nilai kosong/tak hingga dan transformasi fitur dijalankan otomatis sesuai model (aturan yang sama saat pelatihan).
-
-## Pengaman: pengujian tidak boleh memakai data latih
-Pengujian menolak file yang namanya sama dengan dataset latih yang tercatat di model (`trained_on`), dan file yang ≥ 50% barisnya identik
-dengan dataset latih yang sidik jarinya tersimpan (otomatis dibuat saat melatih model di sistem ini).
-Model dari notebook Kaggle versi perbaikan sudah membawa `trained_on`, sehingga file `train_sandbox_v3.csv` ditolak berdasarkan namanya.
-
-## Pelatihan model (opsional, di Pengaturan)
-**Pengaturan → Buka halaman pelatihan**: Dataset Latih → Preprocessing → Data Acuan → Pelatihan Model.
-Model dilatih dari **seluruh trafik normal** dataset latih (tanpa pembagian data dan tanpa batas jumlah); baris serangan tidak dipakai melatih.
-Threshold ditentukan dari skor data latih itu sendiri. LOF pada data penuh membutuhkan waktu sekitar 10 menit dan file model ratusan MB; IF cepat.
-Model juga bisa dibuat di notebook (`02_pelatihan_model.ipynb`) lalu disalin ke folder `models/`.
-
-## Struktur folder
-```
-sistem_deteksi_ddos/
-├── app.py            # backend Flask: halaman, proses latar belakang, grafik SVG
-├── core.py           # logika: preprocessing, pelatihan, deteksi, evaluasi, pengaman data latih
-├── requirements.txt
-├── static/style.css  # desain (tanpa CDN)
-├── templates/        # halaman HTML (+ ikon SVG inline)
-├── models/           # file model .joblib dan sidik jari data latih (*.fp.npz)
-└── uploads/          # salinan file yang diunggah (boleh dikosongkan)
+model            objek scikit-learn (IsolationForest / LocalOutlierFactor novelty=True)
+features         daftar 73 nama kolom, berikut urutannya
+preprocess       'slog' atau 'slog+scaler'
+scaler           StandardScaler yang dipasang dari data latih (khusus LOF)
+thresholds       {0.05: ..., 0.01: ...} — persentil skor data latih
+n_train          jumlah baris data acuan
+trained_on       nama berkas data latih
+seed, params, sklearn_version, created
 ```
 
-## Batasan
-- File uji harus memuat kolom fitur yang sama dengan data latih model (73 kolom, gaya CICFlowMeter). Kolom yang hilang disebutkan di pesan galat.
-- Hasil adalah **anomali trafik**, bukan vonis pasti DDoS, dan tidak menyebut jenis serangan.
-- scikit-learn dikunci 1.6.1 (sesuai model dari Kaggle). Model yang dibuat dengan versi lain bisa gagal dimuat.
-- Aplikasi untuk satu pengguna lokal; data disimpan di memori dan hilang saat aplikasi dimatikan.
-- Waktu proses LOF pada file besar lama (±9 menit untuk 352 ribu baris dengan model dari data penuh).
+## Catatan
+
+- Satu proses berat berjalan dalam satu waktu (`run_job`), dengan titik periksa `job_control()` di sela
+  potongan sehingga tombol Jeda dan Hentikan benar-benar bekerja.
+- Metadata model di-cache di `*.meta.json` agar daftar model tidak perlu memuat objek model yang besar.
+- Sistem ini **tidak melatih** model. Berkas model dibuat di luar sistem; percobaan parameternya ada di
+  `notebook_perbandingan_if_lof.ipynb` pada akar repositori.

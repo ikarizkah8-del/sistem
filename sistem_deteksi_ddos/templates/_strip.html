@@ -1,0 +1,24 @@
+{# Pita identitas model: jumlah data acuan, parameter inti, ukuran berkas. Variabel: strips, acuan_besar, acuan_kecil #}
+{% from "_icons.html" import ic %}
+<div class="panel strip">
+  <div class="st-l">
+    {% if caption %}<div class="st-cap">{{ caption }}</div>{% endif %}
+    <div class="st-row">
+      {% for s in strips %}
+        {% if s.ok %}
+          {% if not loop.first %}<span class="st-sep">&#10231;</span>{% endif %}
+          <span class="st-key {{ s.algo|lower }}">{{ s.key }}</span>
+          <span class="st-det">{{ s.n_train|fmt }} baris acuan &middot; {{ s.inti }} &middot; {{ s.size }}</span>
+        {% else %}
+          {% if not loop.first %}<span class="st-sep">&#10231;</span>{% endif %}
+          <span class="st-det muted">model belum tersedia</span>
+        {% endif %}
+      {% endfor %}
+    </div>
+  </div>
+  {% if acuan_kecil %}
+  <div class="st-warn">{{ ic('alert') }}
+    <div><b>Data acuan kecil</b><br>model lain memakai {{ acuan_besar|fmt }} baris</div>
+  </div>
+  {% endif %}
+</div>

@@ -1,17 +1,96 @@
 {% extends "base.html" %}{% from "_icons.html" import ic %}
 {% block pagetitle %}Uji Model — DDoS Detection{% endblock %}
 {% block title %}Uji Model{% endblock %}
-{% block sub %}Unggah file uji, pilih model, dan atur opsi pengujian. Sistem hanya mendeteksi, tidak melatih.{% endblock %}
+{% block sub %}Unggah berkas uji, pilih model, jalankan, lalu telusuri hasilnya di halaman yang sama.{% endblock %}
 {% block content %}
-{% set next = 'uji' %}{% set show_options = True %}
-{% include "_runform.html" %}
 
-<div class="row cols-2 gap-top">
-  <div class="panel">
-    <div class="ptitle-row"><h2>Berkas yang Dimuat</h2>{% if finfo %}<span class="badge">{{ finfo.fsize }}</span>{% endif %}</div>
-    {% if not finfo %}
-    <div class="empty">{{ ic('upload') }}Belum ada file uji di memori.<br>Pilih file CSV di atas lalu tekan <b>Mulai Uji Model</b>.</div>
-    {% else %}
+<form method="post" action="{{ url_for('uji') }}" enctype="multipart/form-data" data-busy="Memproses..." id="runform">
+<div class="panel top3">
+  <section>
+    <div class="sec-head"><span class="ibox">{{ ic('database') }}</span><span class="t">Unggah dataset uji</span></div>
+    <label class="dropzone" id="dz" for="file">
+      {{ ic('upload') }}<b>Pilih file CSV</b><span>atau seret dan lepas file di sini</span>
+      <input type="file" id="file" name="file" accept=".csv">
+    </label>
+    <div class="chip {{ '' if has_file else 'hidden' }}" id="chip" data-server="{{ 1 if has_file else 0 }}">
+      <span class="fi">{{ ic('file') }}</span>
+      <div class="grow"><div class="nm" id="chipname">{{ fname or '' }}</div><div class="sz" id="chipsize">{{ fsize or '' }}</div></div>
+      <button type="button" class="x" id="chipx" title="Hapus berkas">{{ ic('x') }}</button>
+    </div>
+  </section>
+
+  <section class="modelbox">
+    <div class="sec-head" style="margin-bottom:2px">
+      <span class="ibox" style="background:none;width:auto;height:auto;margin-right:-2px">{{ ic('gear') }}</span>
+      <span class="t">Pilih model</span>
+      <span class="small muted" style="margin-left:8px">jumlah data acuan ikut tampil</span>
+    </div>
+
+    {% for a in algos %}
+    <div class="mcard">
+      <input class="mc-input" type="radio" name="algo" id="m-{{ a.algo }}" value="{{ a.algo }}"
+             {{ 'checked' if a.algo == selected }} {{ '' if a.ok else 'disabled' }}>
+      <label class="mc-card" for="m-{{ a.algo }}">
+        <span class="mi">{{ ic('tree' if a.algo == 'IF' else 'lof') }}</span>
+        <span><span class="nm">{{ a.name }}{{ ' (LOF)' if a.algo == 'LOF' }}</span>
+          <span class="ds">{{ a.desc|safe }}{{ '' if a.ok else ' — model belum tersedia' }}</span></span>
+        <span class="dot"></span>
+      </label>
+      {% if a.options %}
+      <select class="select seedsel" name="key_{{ a.algo }}" title="Model {{ a.name }} yang dipakai">
+        {% for o in a.options %}
+        <option value="{{ o.key }}" {{ 'selected' if o.key == a.key }}>{{ o.key }}{% if o.n %} &middot; {{ o.n|fmt }}{% endif %}</option>
+        {% endfor %}
+      </select>
+      {% endif %}
+    </div>
+    {% endfor %}
+
+    <div class="mcard">
+      <input class="mc-input" type="radio" name="algo" id="m-BOTH" value="BOTH"
+             {{ 'checked' if selected == 'BOTH' }} {{ '' if algos|selectattr('ok')|list|length == 2 else 'disabled' }}>
+      <label class="mc-card" for="m-BOTH">
+        <span class="mi">{{ ic('compare') }}</span>
+        <span><span class="nm">Keduanya (IF + LOF)</span>
+          <span class="ds">Jalankan dua-duanya lalu bandingkan</span></span>
+        <span class="dot"></span>
+      </label>
+      <span class="seednote">pakai pilihan di atas</span>
+    </div>
+  </section>
+
+  <section>
+    <button class="btn btn-primary btn-lg" type="submit">{{ ic('play') }} Mulai Uji Model</button>
+    <div class="infobox">{{ ic('info') }}<div>Skor anomali dihitung sekali, lalu dibandingkan dengan seluruh
+      ambang yang dimiliki model. Sistem hanya menguji, tidak melatih.</div></div>
+  </section>
+</div>
+
+<div class="panel gap-top">
+  <h2 class="mb-2">Opsi pengujian</h2>
+  <div class="row cols-3">
+    <div class="field"><label class="label">Ambang yang ditampilkan (target FPR)</label>
+      <select name="fpr" class="select">
+        {% for f in fpr_options %}<option value="{{ f }}" {{ 'selected' if f == fpr_now }}>{{ f|pctc(0) }}{{ ' (utama)' if f == 0.05 }}</option>{% endfor %}
+      </select>
+      <div class="small muted mt-1">Seluruh ambang tetap dihitung; pilihan ini hanya menentukan yang tampil di tabel.</div></div>
+    <div class="field"><label class="label">Batas jumlah baris <span class="muted">(kosong = semua baris)</span></label>
+      <input type="number" name="max_rows" class="input" min="1000" step="1000" placeholder="semua baris" value="{{ max_rows or '' }}">
+      <div class="small muted mt-1">Sampel acak berstratifikasi. Berguna untuk mencoba berkas besar dengan cepat.</div></div>
+    <div class="field"><label class="label">Berkas</label>
+      <div class="small muted mt-1">Format CSV dengan {{ n_features or 73 }} kolom fitur yang sama dengan data latih model.
+        Kolom <code>Label</code> boleh ada untuk evaluasi, tetapi tidak wajib.
+        Berkas yang dikenali sebagai data latih akan ditolak.</div>
+      {% if features %}<details class="mt-1"><summary class="small">Daftar {{ n_features }} kolom fitur</summary>
+        <div class="small muted mt-1 break">{{ features|join(', ') }}</div></details>{% endif %}</div>
+  </div>
+</div>
+</form>
+
+{% if finfo %}
+<div class="panel gap-top">
+  <div class="ptitle-row"><h2>Berkas yang dimuat</h2><span class="badge">{{ finfo.fsize }}</span></div>
+  <div class="row cols-2">
     <dl class="spec">
       <dt>Nama berkas</dt><dd class="break">{{ finfo.fname }}</dd>
       <dt>Jumlah baris</dt><dd>{{ finfo.rows|fmt }} baris</dd>
@@ -22,63 +101,120 @@
       <div class="ck {{ 'ok' if finfo.n_missing == 0 else 'bad' }}">
         <span class="ci">{{ ic('check-circle' if finfo.n_missing == 0 else 'alert') }}</span>
         <div><b>{% if finfo.n_missing == 0 %}Kolom fitur lengkap{% else %}{{ finfo.n_missing }} kolom fitur tidak ditemukan{% endif %}</b>
-          <div class="d">{% if finfo.n_missing == 0 %}Seluruh {{ n_features }} kolom yang dibutuhkan model tersedia.{% else %}Mis.: {{ finfo.missing|join(', ') }}. Pengujian akan ditolak.{% endif %}</div>
-        </div>
+          <div class="d">{% if finfo.n_missing == 0 %}Seluruh {{ n_features }} kolom yang dibutuhkan model tersedia.{% else %}Mis.: {{ finfo.missing|join(', ') }}. Pengujian akan ditolak.{% endif %}</div></div>
       </div>
       <div class="ck {{ 'ok' if finfo.label else 'neutral' }}">
         <span class="ci">{{ ic('check-circle' if finfo.label else 'info') }}</span>
         <div><b>{% if finfo.label %}Evaluasi tersedia{% else %}Tanpa evaluasi{% endif %}</b>
-          <div class="d">{% if finfo.label %}Confusion matrix dan metrik akan dihitung dari kolom <code>{{ finfo.label }}</code>.{% else %}Tanpa kolom Label, sistem hanya menghasilkan prediksi tanpa metrik.{% endif %}</div>
-        </div>
+          <div class="d">{% if finfo.label %}Confusion matrix dan metrik dihitung dari kolom <code>{{ finfo.label }}</code>.{% else %}Tanpa kolom Label, sistem hanya menghasilkan prediksi tanpa metrik.{% endif %}</div></div>
       </div>
     </div>
-    {% endif %}
   </div>
+</div>
+{% endif %}
 
-  <div class="panel">
-    <div class="ptitle-row"><h2>Pengujian Terakhir</h2>{% if last %}<a class="btn btn-ghost btn-sm" href="{{ url_for('hasil') }}">{{ ic('detect') }} Hasil Deteksi</a>{% endif %}</div>
-    {% if not last %}
-    <div class="empty">{{ ic('detect') }}Belum ada pengujian pada sesi ini.<br>Hasilnya akan muncul di sini setelah proses selesai.</div>
-    {% else %}
-    {% for x in last %}
-    <div class="runcard">
-      <div class="rc-top">
-        <span class="mi">{{ ic('tree' if x.algo == 'IF' else 'lof') }}</span>
-        <div class="grow"><div class="nm">{{ x.name }}</div><div class="ky">{{ x.key }}</div></div>
-        {% if x.acc is not none %}<span class="badge ok">Accuracy {{ x.acc|dec }}</span>{% endif %}
-      </div>
-      <div class="rc-grid">
-        <div><span class="l">Flow diperiksa</span><span class="v">{{ x.n|fmt }} <small>flow</small>{% if x.sampled %} <small class="muted">dari {{ x.n_file|fmt }}</small>{% endif %}</span></div>
-        <div><span class="l">Terdeteksi DDoS</span><span class="v red">{{ x.n_att|fmt }} <small>flow</small></span></div>
-        <div><span class="l">FPR / threshold</span><span class="v">{{ x.fpr|pctc(0) }} · {{ x.thr|dec(4) }} <small>skor</small></span></div>
-        <div><span class="l">Waktu proses</span><span class="v">{{ x.t|dur }}</span></div>
-      </div>
+{% if not ada %}
+<div class="panel gap-top">
+  <div class="empty">{{ ic('detect') }}Belum ada hasil pada sesi ini.<br>
+    Pilih berkas CSV di atas lalu tekan <b>Mulai Uji Model</b>, atau buka hasil lama di
+    <a href="{{ url_for('riwayat') }}">Riwayat</a>.</div>
+</div>
+{% else %}
+
+<h2 class="mt-title">Hasil deteksi</h2>
+
+<div class="panel">
+  <div class="ptitle-row"><h2>Konteks deteksi</h2>
+    <div class="rowflex">
+      <a class="btn btn-outline btn-sm" href="{{ url_for('hasil_unduh') }}">{{ ic('download') }} Unduh CSV</a>
+      {% if run_algos|length > 1 %}<a class="btn btn-ghost btn-sm" href="{{ url_for('perbandingan') }}">{{ ic('compare') }} Perbandingan</a>{% endif %}
     </div>
+  </div>
+  <div class="ctx">
+    <div><span class="l">Model</span><span class="v">{{ meta.model_txt }}</span></div>
+    <div><span class="l">Data acuan</span><span class="v">{{ meta.acuan|fmt }} <small>baris BENIGN</small></span></div>
+    <div><span class="l">Ambang ditampilkan</span><span class="v">{{ meta.fpr|pctc(0) }} &middot; {{ meta.thr|dec(4) }} <small>skor</small></span></div>
+    <div><span class="l">Fitur dipakai</span><span class="v">{{ meta.n_features }} <small>kolom</small></span></div>
+    <div><span class="l">Waktu prediksi</span><span class="v">{{ meta.t_txt }}</span></div>
+    <div><span class="l">Cakupan</span><span class="v">{% if meta.sampled %}sampel {{ summ.all|fmt }} dari {{ meta.n_file|fmt }} <small>flow</small>{% else %}seluruh {{ summ.all|fmt }} <small>flow</small>{% endif %}</span></div>
+  </div>
+</div>
+
+<div class="filtercards gap-top">
+  {% macro fcard(key, label, value, tone, hint) -%}
+  <a class="fc {{ tone }} {{ 'on' if flt == key }}" href="{{ url_for('uji', f=key, m=m) }}">
+    <span class="fl">{{ label }}</span>
+    <span class="fv">{{ value|fmt }} <small>flow</small></span>
+    <span class="fh">{{ hint }}</span>
+  </a>
+  {%- endmacro %}
+  {{ fcard('all', 'Semua flow', summ.all, 'neutral', 'seluruh baris yang diperiksa') }}
+  {{ fcard('ddos', 'Prediksi DDoS', summ.ddos, 'red', 'ditandai anomali oleh ' ~ m) }}
+  {{ fcard('normal', 'Prediksi Normal', summ.normal, 'green', 'di bawah ambang') }}
+  {% if has_labels %}
+  {{ fcard('salah', 'Salah deteksi', summ.salah, 'amber', 'alarm palsu ' ~ summ.fp|fmt ~ ' · lolos ' ~ summ.fn|fmt) }}
+  {% endif %}
+</div>
+
+<div class="panel gap-top">
+  <div class="ptitle-row">
+    <div class="rowflex">
+      <h2>Rincian per flow</h2>
+      <span class="small muted">10 baris per halaman &middot; ambang {{ meta.fpr|pctc(0) }}</span>
+      {% if run_algos|length > 1 %}
+      <form method="get" class="rowflex">
+        <input type="hidden" name="f" value="{{ flt }}">
+        <label class="small muted">Dasar filter</label>
+        <select name="m" class="select" style="width:auto" onchange="this.form.submit()">
+          {% for a in run_algos %}<option value="{{ a }}" {{ 'selected' if a == m }}>{{ ALGO_NAME[a] }}</option>{% endfor %}
+        </select>
+      </form>
+      {% endif %}
+    </div>
+    <span class="small muted">{{ total|fmt }} flow{{ ' (terfilter)' if flt != 'all' }}</span>
+  </div>
+  <table class="tbl roomy">
+    <thead><tr><th style="width:70px">No</th>{% if has_labels %}<th>Label aktual</th><th>Jenis asli</th>{% endif %}
+      {% for a in run_algos %}<th>Prediksi {{ a }}</th><th class="num">Skor {{ a }} <small>(ambang {{ thr_by[a]|dec(4) }})</small></th>{% endfor %}</tr></thead>
+    <tbody>
+    {% for row in rows %}<tr><td>{{ row.no|fmt }}</td>
+      {% if has_labels %}<td><span class="pill {{ 'd' if row.actual == 'DDoS' else 'n' }}">{{ row.actual }}</span></td><td class="small muted">{{ row.orig }}</td>{% endif %}
+      {% for a in run_algos %}{% set pv = row.pred[a] %}<td><span class="pill {{ 'd' if pv == 'DDoS' else 'n' }} {{ 'wrong' if has_labels and pv != row.actual }}">{{ pv }}</span></td>
+        <td class="num {{ 'over' if row.score[a] > thr_by[a] else 'under' }}">{{ row.score[a]|dec(4) }}</td>{% endfor %}</tr>
     {% endfor %}
-    {% if last|length > 1 %}<div class="mt-2"><a class="btn btn-outline btn-sm" href="{{ url_for('perbandingan') }}">{{ ic('compare') }} Bandingkan kedua model</a></div>{% endif %}
-    {% endif %}
+    {% if not rows %}<tr><td colspan="9" class="center muted" style="height:60px">Tidak ada data untuk filter ini.</td></tr>{% endif %}
+    </tbody>
+  </table>
+  <div class="pager">
+    <span class="info">Menampilkan {{ start|fmt }} - {{ end|fmt }} dari {{ total|fmt }} flow{% if has_labels %} &middot; bingkai merah = salah deteksi{% endif %}</span>
+    <div class="pages">
+      <a class="{{ 'dis' if page <= 1 }}" href="{{ url_for('uji', p=page-1, f=flt, m=m) }}">{{ ic('chevron-left') }}</a>
+      {% for n in page_window %}{% if n == page %}<span class="cur">{{ n }}</span>{% else %}<a href="{{ url_for('uji', p=n, f=flt, m=m) }}">{{ n }}</a>{% endif %}{% endfor %}
+      <a class="{{ 'dis' if page >= pages }}" href="{{ url_for('uji', p=page+1, f=flt, m=m) }}">{{ ic('chevron-right') }}</a>
+    </div>
   </div>
+  <div class="legend-note">{{ ic('info') }}<span><b>Skor anomali tidak bersatuan</b> dan skalanya berbeda tiap algoritma.
+    Yang memberi arti adalah ambangnya: skor <span class="over">di atas ambang</span> diprediksi DDoS, skor
+    <span class="under">di bawahnya</span> diprediksi Normal. Angka antar model tidak boleh dibandingkan langsung.</span></div>
 </div>
+{% endif %}
+{% endblock %}
 
-<div class="row cols-2 gap-top">
-  <div class="panel">
-    <div class="ptitle-row"><h2>Model yang Dipakai</h2><a class="btn btn-ghost btn-sm" href="{{ url_for('pengaturan') }}">{{ ic('gear') }} Ganti</a></div>
-    {% if not model_rows %}<div class="empty">{{ ic('box') }}Belum ada model tersimpan. Salin file <code>.joblib</code> ke folder <code>models/</code>.</div>
-    {% else %}
-    <table class="tbl roomy"><thead><tr><th>Algoritma</th><th>Model</th><th>Dilatih pada</th><th class="num">Fitur</th></tr></thead><tbody>
-    {% for m in model_rows %}<tr><td>{{ m.name }}</td><td><b>{{ m.key }}</b></td><td>{{ m.trained_on or '-' }}</td><td class="num">{{ m.n_features }}</td></tr>{% endfor %}
-    </tbody></table>
-    {% endif %}
-  </div>
-  <div class="panel">
-    <div class="ptitle-row"><h2>Persyaratan File Uji</h2></div>
-    <ul class="reqs">
-      <li>Format <b>CSV</b> dengan nama kolom fitur yang sama dengan data latih model ({{ n_features or 73 }} kolom, gaya CICFlowMeter).</li>
-      <li>Urutan kolom bebas, kolom tambahan diabaikan.</li>
-      <li>Kolom <code>Label</code> boleh ada untuk evaluasi, tetapi tidak wajib.</li>
-      <li><b>Bukan data latih.</b> File yang dikenali sebagai data latih model akan ditolak, termasuk jika namanya diubah.</li>
-    </ul>
-    {% if features %}<details class="mt-2"><summary>Daftar {{ n_features }} kolom fitur yang dibutuhkan</summary><div class="small muted mt-1 break">{{ features|join(', ') }}</div></details>{% endif %}
-  </div>
-</div>
+{% block scripts %}
+<script>
+(function(){
+  const input=document.getElementById('file'), dz=document.getElementById('dz'), chip=document.getElementById('chip'),
+        nm=document.getElementById('chipname'), sz=document.getElementById('chipsize'), x=document.getElementById('chipx');
+  const mb=b=>(b/1048576).toFixed(1).replace('.',',')+' MB';
+  function show(f){ if(!f){return;} nm.textContent=f.name; sz.textContent=mb(f.size); chip.dataset.server='0'; chip.classList.remove('hidden'); }
+  input.addEventListener('change',()=>show(input.files[0]));
+  ['dragenter','dragover'].forEach(e=>dz.addEventListener(e,ev=>{ev.preventDefault();dz.classList.add('drag');}));
+  ['dragleave','drop'].forEach(e=>dz.addEventListener(e,ev=>{ev.preventDefault();dz.classList.remove('drag');}));
+  dz.addEventListener('drop',ev=>{ if(ev.dataTransfer.files.length){input.files=ev.dataTransfer.files;show(input.files[0]);} });
+  x.addEventListener('click',async()=>{
+    if(chip.dataset.server==='1'){ await fetch('{{ url_for("hapus_file") }}',{method:'POST'}); location.reload(); }
+    else{ input.value=''; chip.classList.add('hidden'); }
+  });
+})();
+</script>
 {% endblock %}

@@ -1,69 +1,128 @@
-{% extends "base.html" %}{% from "_icons.html" import ic %}{% from "_widgets.html" import confusion %}
+{% extends "base.html" %}{% from "_icons.html" import ic %}
 {% block pagetitle %}Dashboard — DDoS Detection{% endblock %}
 {% block title %}Dashboard{% endblock %}
-{% block sub %}Status model yang terpasang dan ringkasan deteksi terakhir. Rincian tiap model ada di Perbandingan Model.{% endblock %}
+{% block sub %}Kesimpulan bergantung pada ambang batas: ringkasan kedua algoritma pada tiap target alarm palsu.{% endblock %}
 {% block content %}
 
-<div class="panel" style="padding:0">
-  <div class="stats">
-    <div class="stat"><span class="ibox">{{ ic('box') }}</span><div><div class="l">Model Tersimpan</div><div class="v">{{ n_models }} <small>berkas .joblib</small></div><div class="cap">folder models/</div></div></div>
-    <div class="stat {{ 'green' if n_ready == 2 else '' }}"><span class="ibox">{{ ic('shield-check') }}</span><div><div class="l">Model Siap Pakai</div><div class="v">{{ n_ready }} <small>dari 2 algoritma</small></div><div class="cap">{{ 'Isolation Forest & LOF' if n_ready == 2 else 'belum lengkap' }}</div></div></div>
-    <div class="stat"><span class="ibox">{{ ic('target') }}</span><div><div class="l">Target Alarm Palsu</div><div class="v">{{ fpr_now|pctc(0) }}</div><div class="cap">threshold aktif</div></div></div>
-    <div class="stat time"><span class="ibox">{{ ic('file') }}</span><div><div class="l">File Uji Dimuat</div><div class="v" style="font-size:16px">{{ fname if fname else '—' }}</div><div class="cap">{{ 'siap diuji ulang' if fname else 'belum ada file' }}</div></div></div>
+{% with caption = 'Model aktif' %}{% include "_strip.html" %}{% endwith %}
+
+{% if not ada %}
+<div class="panel gap-top">
+  <div class="empty">{{ ic('detect') }}Belum ada hasil pengujian pada sesi ini.<br>
+    Unggah berkas uji di halaman Uji Model, atau buka kembali hasil lama di Riwayat.
+    <div class="mt-2">
+      <a class="btn btn-primary btn-sm" href="{{ url_for('uji') }}">{{ ic('play') }} Ke Uji Model</a>
+      <a class="btn btn-outline btn-sm" href="{{ url_for('riwayat') }}">{{ ic('clock') }} Lihat Riwayat</a>
+    </div>
   </div>
 </div>
+{% else %}
 
 <div class="panel gap-top">
   <div class="ptitle-row">
-    <h2>Ringkasan Deteksi Terakhir</h2>
-    {% if r %}<div class="rowflex">
-      <span class="small muted">{{ fname }}</span>
-      <a class="btn btn-ghost btn-sm" href="{{ url_for('hasil') }}">{{ ic('detect') }} Lihat per flow</a>
-      {% if run_algos|length > 1 %}<a class="btn btn-ghost btn-sm" href="{{ url_for('perbandingan') }}">{{ ic('compare') }} Bandingkan</a>{% endif %}
-    </div>{% endif %}
+    <h2>Mana yang lebih unggul</h2>
+    <span class="small muted">jawabannya berbeda di tiap ambang batas</span>
   </div>
-
-  {% if not r %}
-  <div class="empty">{{ ic('detect') }}Belum ada hasil deteksi pada sesi ini.<br>Unggah file uji dan jalankan model di halaman Uji Model.
-    <div class="mt-2"><a class="btn btn-primary btn-sm" href="{{ url_for('uji') }}">{{ ic('play') }} Ke Uji Model</a></div>
-  </div>
+  {% if not has_labels %}
+  <div class="empty">{{ ic('info') }}Berkas uji tidak punya kolom <code>Label</code>, jadi keunggulan model tidak dapat dinilai.</div>
+  {% elif not vonis %}
+  <div class="empty">{{ ic('info') }}Perbandingan memerlukan kedua model pada berkas yang sama.
+    Pilih <b>Keduanya (IF + LOF)</b> di halaman Uji Model.</div>
   {% else %}
-  <div class="stats flush">
-    <div class="stat"><span class="ibox">{{ ic('database') }}</span><div><div class="l">Total Data</div><div class="v">{{ st.total|fmt }} <small>baris</small></div></div></div>
-    <div class="stat green"><span class="ibox">{{ ic('check-circle') }}</span><div><div class="l">Data Normal</div><div class="v">{{ st.n_norm|fmt }} <small>({{ st.p_norm|pctc }})</small></div><div class="cap">prediksi {{ st.model_short }}</div></div></div>
-    <div class="stat red"><span class="ibox">{{ ic('alert') }}</span><div><div class="l">Data Serangan</div><div class="v">{{ st.n_att|fmt }} <small>({{ st.p_att|pctc }})</small></div><div class="cap">prediksi {{ st.model_short }}</div></div></div>
-    <div class="stat time"><span class="ibox">{{ ic('clock') }}</span><div><div class="l">Waktu Proses</div><div class="v" style="font-size:20px">{{ st.time|dur }}</div><div class="cap">baca CSV + skoring</div></div></div>
-  </div>
-
-  <div class="evalgrid" style="margin-top:26px">
-    <div class="evalsec">
-      <div class="sub-title">Distribusi Prediksi</div>
-      <div class="chartbox">{{ chart_svg|safe }}</div>
+  <div class="row cols-2">
+    {% for v in vonis %}
+    <div class="vonis {{ v.algo|lower }}">
+      <div class="vo-t">Target FPR {{ v.fpr|pctc(0) }}</div>
+      <div class="vo-n">{{ v.name }}</div>
+      <div class="vo-a">F1 {{ v.f1|pctc(2) }} &nbsp;vs&nbsp; {{ v.f1_lain|pctc(2) }}
+        <span class="muted">&middot; recall {{ v.recall|pctc(2) }} vs {{ v.recall_lain|pctc(2) }}</span></div>
+      <div class="vo-b">{{ v.fn|fmt }} serangan lolos dari {{ v.n_att|fmt }} flow serangan.</div>
     </div>
-    <div class="evalsec">
-      {% if cm %}
-      <div class="sub-title">Metrik Evaluasi</div>
-      <table class="metr">
-        <thead><tr><th>Metrik <small>(0–1 setara 0–100%)</small></th>{% for a in run_algos %}<th>{{ ALGO_NAME[a] if a == 'IF' else a }}</th>{% endfor %}</tr></thead>
-        <tbody>
-        {% for icon, name, vals in metrics %}<tr><td>{{ ic(icon) }}{{ name }}</td>
-          {% for a in run_algos %}{% set v = vals.get(a) %}<td>
-            {% if v is not none %}<div class="mval"><b>{{ v|dec }} <small>({{ v|pctc }})</small></b><span class="trk"><i style="width:{{ (v * 100)|round(1) }}%"></i></span></div>{% else %}-{% endif %}
-          </td>{% endfor %}</tr>{% endfor %}
-        </tbody>
-      </table>
-      <div class="legend-note">{{ ic('info') }}<span>Confusion matrix lengkap dan recall per jenis serangan ada di halaman <a href="{{ url_for('perbandingan') }}">Perbandingan Model</a>.</span></div>
-      {% else %}
-      <div class="sub-title">Metrik Evaluasi</div>
-      <div class="empty">{{ ic('info') }}File yang diuji tidak punya kolom <code>Label</code>, jadi metrik evaluasi tidak dapat dihitung.</div>
-      {% endif %}
-    </div>
+    {% endfor %}
   </div>
-
-  {% if cm %}
-  <div class="sub-title" style="margin-top:28px">Confusion Matrix — {{ cm.model_name }}</div>
-  {{ confusion(cm, lg=true) }}
-  {% endif %}
   {% endif %}
 </div>
+
+<div class="row cols-curve gap-top">
+  <div class="panel">
+    <div class="ptitle-row">
+      <h2>Recall terhadap FPR aktual</h2>
+      <div class="rowflex">
+        {% for a in run_algos %}<span class="lg-item"><i class="dot {{ a|lower }}"></i>{{ a }}</span>{% endfor %}
+      </div>
+    </div>
+    {% if curve %}
+      <div class="chartbox">{{ curve|safe }}</div>
+      <div class="legend-note">{{ ic('info') }}<span>Bulatan adalah titik operasi tiap target FPR. Garis di antaranya
+        dihitung dari skor anomali yang sama, jadi seluruh kurva berasal dari satu kali pengujian.</span></div>
+    {% else %}
+      <div class="empty">{{ ic('info') }}Kurva memerlukan kolom <code>Label</code> pada berkas uji.</div>
+    {% endif %}
+  </div>
+
+  <div>
+    <div class="panel">
+      <div class="ptitle-row"><h2>Kecepatan deteksi</h2></div>
+      {% for s in speed %}
+      <div class="mini">
+        <div class="mi-l">{{ s.name }}</div>
+        <div class="trk"><i style="width:{{ (s.frac * 100)|round(1) }}%;background:{{ s.color }}"></i></div>
+        <div class="mi-v">{{ s.t|dtk }}</div>
+      </div>
+      {% endfor %}
+      <div class="small muted mt-1">Hanya waktu menghitung skor, di luar pembacaan berkas CSV.</div>
+    </div>
+
+    {% if has_labels and macro %}
+    <div class="panel gap-top">
+      <div class="ptitle-row"><h2>Macro recall per jenis</h2></div>
+      <div class="small muted mb-2">rata-rata jenis serangan dengan &ge; {{ 200 }} sampel uji</div>
+      {% for m in macro %}
+      <div class="mini">
+        <div class="mi-l">{{ m.name }}</div>
+        <div class="trk"><i style="width:{{ ((m.v or 0) * 100)|round(1) }}%;background:{{ m.color }}"></i></div>
+        <div class="mi-v">{% if m.v is not none %}{{ m.v|pctc(2) }}{% else %}&mdash;{% endif %}</div>
+      </div>
+      {% endfor %}
+    </div>
+    {% endif %}
+  </div>
+</div>
+
+{% if has_labels %}
+<div class="panel gap-top">
+  <div class="ptitle-row">
+    <h2>Angka lengkap pada seluruh ambang</h2>
+    <span class="small muted">satu kali uji menghasilkan seluruh kolom</span>
+  </div>
+  <table class="tbl roomy quad">
+    <thead><tr><th>Metrik</th>{% for c in cols %}<th class="num">{{ c.label }}</th>{% endfor %}</tr></thead>
+    <tbody>
+      {% for b in baris %}
+      <tr class="{{ 'tetap' if b.tetap }}">
+        <td>{{ b.label }}{% if b.tetap %} <small class="muted">tidak bergantung ambang</small>{% endif %}</td>
+        {% for c in cols %}
+          {% set v = c.vals[b.key] %}
+          <td class="num">{% if v is not none %}{{ v|pctc(2) }}{% else %}&mdash;{% endif %}</td>
+        {% endfor %}
+      </tr>
+      {% endfor %}
+      <tr class="tetap">
+        <td>Waktu prediksi <small class="muted">satu kali skoring</small></td>
+        {% for c in cols %}<td class="num">{{ speed|selectattr('algo','equalto',c.algo)|map(attribute='t')|first|dtk }}</td>{% endfor %}
+      </tr>
+    </tbody>
+  </table>
+  <div class="legend-note">{{ ic('info') }}<span><b>ROC-AUC dan PR-AUC tidak bergantung ambang</b> karena dihitung
+    langsung dari skor anomali, sehingga nilainya sama pada seluruh kolom. Confusion matrix dan recall per jenis
+    serangan ada di <a href="{{ url_for('perbandingan') }}">Perbandingan Model</a>.</span></div>
+</div>
+{% endif %}
+
+<div class="small muted mt-2">
+  Berkas uji: <b>{{ fname or '—' }}</b> &middot; {{ n_rows|fmt }} flow diperiksa{% if sampled %}
+  (sampel dari {{ n_file|fmt }}){% endif %} &middot; rincian per flow ada di
+  <a href="{{ url_for('uji') }}">Uji Model</a>.
+</div>
+{% endif %}
 {% endblock %}

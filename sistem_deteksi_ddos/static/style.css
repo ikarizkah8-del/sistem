@@ -317,3 +317,83 @@ details summary{cursor:pointer;color:#27508c;font-weight:600;font-size:13px}
   .spec{grid-template-columns:1fr}.spec dt{border-bottom:0;padding:9px 0 0}.spec dd{padding-top:2px}}
 
 .cols-bottom .panel{padding:20px}
+
+/* ============================ pita identitas model (Dashboard, Uji Model, Perbandingan) */
+.strip{display:flex;align-items:center;gap:18px;padding:14px 18px}
+.strip .st-l{min-width:0;flex:1}
+.st-cap{font-size:11.5px;color:var(--muted);margin-bottom:3px}
+.st-row{display:flex;align-items:center;flex-wrap:wrap;gap:8px;font-size:13px}
+.st-key{font-weight:700}
+.st-key.if{color:var(--blue)} .st-key.lof{color:#1f9460}
+.st-det{color:var(--ink-2)}
+.st-sep{color:#9aa6bb;margin:0 4px}
+.st-warn{display:flex;align-items:center;gap:9px;background:#fdf3e0;border:1px solid #e8c98a;border-radius:10px;
+  padding:9px 13px;color:#8a5a06;font-size:12px;line-height:1.35;flex:none}
+.st-warn svg{width:17px;height:17px;flex:none}
+.warn-txt{color:#8a5a06}
+
+/* ============================ vonis per ambang (Dashboard) */
+.vonis{border-radius:12px;padding:16px 18px;background:#f4f7fb;border:1px solid var(--line)}
+.vonis.lof{background:#eef8f2;border-color:#bfe3d0}
+.vonis.if{background:#eaf2fd;border-color:#c3dbf7}
+.vo-t{font-size:12px;font-weight:600;color:var(--ink-2)}
+.vo-n{font-size:21px;font-weight:700;margin:4px 0 6px}
+.vonis.lof .vo-n{color:#15734b} .vonis.if .vo-n{color:#1b5bab}
+.vo-a{font-size:13.5px;color:var(--ink)}
+.vo-b{font-size:12px;color:var(--muted);margin-top:4px}
+
+/* ============================ tata letak dua kolom lebar-sempit */
+.cols-curve{display:grid;grid-template-columns:minmax(0,1.85fr) minmax(0,1fr);gap:18px;align-items:start}
+.lg-item{display:inline-flex;align-items:center;gap:6px;font-size:12px;color:var(--muted);margin-left:12px}
+.lg-item .dot{width:11px;height:11px;border-radius:3px;border:0;background:var(--blue)}
+.lg-item:last-child .dot{background:#1f9460}
+
+/* ============================ batang kecil (kecepatan, macro recall) */
+.mini{display:grid;grid-template-columns:118px minmax(0,1fr) 78px;align-items:center;gap:10px;margin:9px 0}
+.mini .mi-l{font-size:12.5px;color:var(--ink)}
+.mini .trk{height:12px;border-radius:6px;background:#edf1f8;overflow:hidden}
+.mini .trk i{display:block;height:100%;border-radius:6px}
+.mini .mi-v{font-size:12.5px;text-align:right;font-variant-numeric:tabular-nums}
+
+/* ============================ tabel metrik banyak kolom */
+.tbl.quad th.num,.tbl.quad td.num{font-variant-numeric:tabular-nums}
+.tbl tr.tetap td{background:#fbfcfe}
+.tbl tr.tetap td:first-child{color:var(--ink-2)}
+.tbl tr.sumrow td{background:#f4f7fb;border-top:1.5px solid #dde6f3}
+.tbl tr.kecil td{background:#fdf8ec}
+.tbl tr.kecil td:first-child{box-shadow:inset 3px 0 0 #e0a52a}
+
+/* ============================ saklar ambang */
+.seg{display:inline-flex;background:#eef2f8;border-radius:9px;padding:3px;gap:3px}
+.seg a{display:inline-flex;align-items:center;height:28px;padding:0 14px;border-radius:7px;font-size:12.5px;
+  color:var(--ink-2);text-decoration:none}
+.seg a:hover{text-decoration:none;color:var(--ink)}
+.seg a.on{background:#fff;border:1px solid #cfd9e8;color:var(--ink);font-weight:600}
+
+/* ============================ temuan utama */
+.temuan{margin:4px 0 0;padding-left:20px;line-height:1.7;font-size:13.5px;color:var(--ink)}
+.temuan li{margin-bottom:5px}
+
+/* ============================ kartu model + pemilih seed */
+.mcard{position:relative}
+.mcard .mc-card{padding-right:214px}
+.mcard .seedsel{position:absolute;right:52px;top:50%;transform:translateY(-50%);z-index:2;width:150px;height:32px;
+  font-size:12px;padding:0 26px 0 10px}
+.mcard .seednote{position:absolute;right:52px;top:50%;transform:translateY(-50%);font-size:11.5px;color:var(--muted-2)}
+
+/* ============================ halaman Riwayat */
+.rw-head{display:flex;align-items:center;gap:18px;padding:16px 18px}
+.rw-n{font-size:16px;font-weight:700}
+.rw-del{display:flex;flex-wrap:wrap;gap:6px;margin-top:10px}
+.rw-del .btn{font-size:11.5px;height:30px;padding:0 10px;color:var(--muted)}
+.rw-del .btn:hover{color:var(--red-text)}
+.mcard .mc-card .dot{position:absolute;right:18px;top:50%;transform:translateY(-50%);margin:0}
+
+/* kolom tengah (pilih model) perlu lebih lebar karena memuat pemilih seed */
+.top3{grid-template-columns:minmax(0,0.86fr) minmax(0,1.52fr) minmax(0,0.86fr)}
+.mcard .mc-card{padding-right:188px}
+.mcard .seedsel{right:46px;width:134px}
+.mcard .seednote{right:46px}
+@media (max-width:1200px){.top3{grid-template-columns:1fr}}
+.mcard .mc-card{padding-right:206px}
+.mcard .seedsel{width:152px}
