@@ -1,0 +1,83 @@
+{% extends "base.html" %}{% from "_icons.html" import ic %}
+{% block pagetitle %}Hasil Deteksi — DDoS Detection{% endblock %}
+{% block title %}Hasil Deteksi{% endblock %}
+{% block sub %}Hasil prediksi untuk setiap flow pada file uji{% if r %}: {{ fname }}{% endif %}.{% endblock %}
+{% block content %}
+{% if not r %}
+<div class="panel"><div class="empty">{{ ic('detect') }}Belum ada hasil deteksi.<br>Unggah file uji dan jalankan model terlebih dahulu.
+  <div class="mt-2"><a class="btn btn-primary btn-sm" href="{{ url_for('uji') }}">{{ ic('play') }} Ke Uji Model</a></div></div></div>
+{% else %}
+
+<div class="panel">
+  <div class="ptitle-row"><h2>Konteks Deteksi</h2>
+    <div class="rowflex">
+      <a class="btn btn-outline btn-sm" href="{{ url_for('hasil_unduh') }}">{{ ic('download') }} Unduh CSV</a>
+      {% if run_algos|length > 1 %}<a class="btn btn-ghost btn-sm" href="{{ url_for('perbandingan') }}">{{ ic('compare') }} Perbandingan</a>{% endif %}
+    </div>
+  </div>
+  <div class="ctx">
+    <div><span class="l">Berkas uji</span><span class="v break">{{ meta.fname }}</span></div>
+    <div><span class="l">Model</span><span class="v">{{ meta.name }} <small class="muted">{{ meta.key }}</small></span></div>
+    <div><span class="l">Target FPR / threshold</span><span class="v">{{ meta.fpr|pctc(0) }} · {{ meta.thr|dec(4) }} <small>skor</small></span></div>
+    <div><span class="l">Fitur dipakai</span><span class="v">{{ meta.n_features }} <small>kolom</small></span></div>
+    <div><span class="l">Waktu proses</span><span class="v">{{ meta.t|dur }}</span></div>
+    <div><span class="l">Cakupan</span><span class="v">{% if meta.sampled %}sampel {{ summ.all|fmt }} dari {{ meta.n_file|fmt }} <small>flow</small>{% else %}seluruh {{ summ.all|fmt }} <small>flow</small>{% endif %}</span></div>
+  </div>
+</div>
+
+<div class="filtercards gap-top">
+  {% macro fcard(key, label, value, tone, hint) -%}
+  <a class="fc {{ tone }} {{ 'on' if flt == key }}" href="{{ url_for('hasil', f=key, m=m) }}">
+    <span class="fl">{{ label }}</span>
+    <span class="fv">{{ value|fmt }} <small>flow</small></span>
+    <span class="fh">{{ hint }}</span>
+  </a>
+  {%- endmacro %}
+  {{ fcard('all', 'Semua Flow', summ.all, 'neutral', 'seluruh baris yang diperiksa') }}
+  {{ fcard('ddos', 'Prediksi DDoS', summ.ddos, 'red', 'ditandai anomali oleh model') }}
+  {{ fcard('normal', 'Prediksi Normal', summ.normal, 'green', 'di bawah threshold') }}
+  {% if has_labels %}
+  {{ fcard('salah', 'Salah Deteksi', summ.salah, 'amber', 'prediksi tidak sama dengan label') }}
+  {{ fcard('fp', 'Alarm Palsu', summ.fp, 'amber', 'normal dikira serangan (FP)') }}
+  {{ fcard('fn', 'Serangan Lolos', summ.fn, 'red', 'serangan dikira normal (FN)') }}
+  {% endif %}
+</div>
+
+<div class="panel gap-top">
+  <div class="ptitle-row">
+    <div class="rowflex">
+      <h2>Rincian per Flow</h2>
+      {% if run_algos|length > 1 %}
+      <form method="get" class="rowflex">
+        <input type="hidden" name="f" value="{{ flt }}">
+        <label class="small muted">Model</label>
+        <select name="m" class="select" style="width:auto" onchange="this.form.submit()">{% for a in run_algos %}<option value="{{ a }}" {{ 'selected' if a == m }}>{{ ALGO_NAME[a] }}</option>{% endfor %}</select>
+      </form>
+      {% endif %}
+    </div>
+    <span class="small muted">{{ total|fmt }} flow{{ ' (terfilter)' if flt != 'all' }}</span>
+  </div>
+  <table class="tbl roomy">
+    <thead><tr><th style="width:90px">No</th>{% if has_labels %}<th>Label Aktual</th><th>Jenis asli</th>{% endif %}
+      {% for a in run_algos %}<th>Prediksi {{ a }}</th><th class="num">Skor anomali {{ a }} <small>(ambang {{ thr_by[a]|dec(4) }})</small></th>{% endfor %}</tr></thead>
+    <tbody>
+    {% for row in rows %}<tr><td>{{ row.no|fmt }}</td>
+      {% if has_labels %}<td><span class="pill {{ 'd' if row.actual == 'DDoS' else 'n' }}">{{ row.actual }}</span></td><td class="small muted">{{ row.orig }}</td>{% endif %}
+      {% for a in run_algos %}{% set pv = row.pred[a] %}<td><span class="pill {{ 'd' if pv == 'DDoS' else 'n' }} {{ 'wrong' if has_labels and pv != row.actual }}">{{ pv }}</span></td>
+        <td class="num {{ 'over' if row.score[a] > thr_by[a] else 'under' }}" title="{{ 'di atas' if row.score[a] > thr_by[a] else 'di bawah' }} ambang {{ thr_by[a]|dec(4) }}">{{ row.score[a]|dec(3) }}</td>{% endfor %}</tr>
+    {% endfor %}
+    {% if not rows %}<tr><td colspan="9" class="center muted" style="height:60px">Tidak ada data untuk filter ini.</td></tr>{% endif %}
+    </tbody>
+  </table>
+  <div class="pager">
+    <span class="info">Menampilkan {{ start|fmt }} - {{ end|fmt }} dari {{ total|fmt }} flow{% if has_labels %} · bingkai merah = salah deteksi{% endif %}</span>
+    <div class="pages">
+      <a class="{{ 'dis' if page <= 1 }}" href="{{ url_for('hasil', p=page-1, f=flt, m=m) }}">{{ ic('chevron-left') }}</a>
+      {% for n in page_window %}{% if n == page %}<span class="cur">{{ n }}</span>{% else %}<a href="{{ url_for('hasil', p=n, f=flt, m=m) }}">{{ n }}</a>{% endif %}{% endfor %}
+      <a class="{{ 'dis' if page >= pages }}" href="{{ url_for('hasil', p=page+1, f=flt, m=m) }}">{{ ic('chevron-right') }}</a>
+    </div>
+  </div>
+  <div class="legend-note">{{ ic('info') }}<span><b>Skor anomali tidak bersatuan</b> dan skalanya berbeda tiap algoritma{% for a in run_algos %}{{ ' — ' if loop.first else ', ' }}ambang {{ a }} = {{ thr_by[a]|dec(4) }}{% endfor %}. Yang memberi arti pada angkanya adalah ambang itu: skor <span class="over">di atas ambang</span> diprediksi DDoS, skor <span class="under">di bawahnya</span> diprediksi Normal. Karena skalanya berbeda, angka antar model tidak boleh dibandingkan langsung — bandingkan posisinya terhadap ambang masing-masing.</span></div>
+</div>
+{% endif %}
+{% endblock %}

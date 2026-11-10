@@ -1,0 +1,66 @@
+{# Formulir unggah + pilih model + mulai (dipakai di Dashboard dan Uji Model). Variabel: next, algos, selected, has_file, fname, fsize, busy #}
+{% from "_icons.html" import ic %}
+<form method="post" action="{{ url_for('uji') }}" enctype="multipart/form-data" data-busy="Memproses..." id="runform">
+<input type="hidden" name="next" value="{{ next }}">
+<div class="panel top3">
+  <section>
+    <div class="sec-head"><span class="ibox">{{ ic('database') }}</span><span class="t">Unggah Dataset Uji</span></div>
+    <label class="dropzone" id="dz" for="file">
+      {{ ic('upload') }}<b>Pilih file CSV</b><span>atau seret dan lepas file di sini</span>
+      <input type="file" id="file" name="file" accept=".csv">
+    </label>
+    <div class="chip {{ '' if has_file else 'hidden' }}" id="chip" data-server="{{ 1 if has_file else 0 }}">
+      <span class="fi">{{ ic('file') }}</span>
+      <div class="grow"><div class="nm" id="chipname">{{ fname or '' }}</div><div class="sz" id="chipsize">{{ fsize or '' }}</div></div>
+      <button type="button" class="x" id="chipx" title="Hapus file">{{ ic('x') }}</button>
+    </div>
+  </section>
+  <section class="modelbox">
+    <div class="sec-head" style="margin-bottom:2px"><span class="ibox" style="background:none;width:auto;height:auto;margin-right:-2px">{{ ic('gear') }}</span><span class="t">Pilih Model</span></div>
+    {% for a in algos %}
+    <input class="mc-input" type="radio" name="algo" id="m-{{ a.algo }}" value="{{ a.algo }}" {{ 'checked' if a.algo == selected }} {{ '' if a.ok else 'disabled' }}>
+    <label class="mc-card" for="m-{{ a.algo }}">
+      <span class="mi">{{ ic('tree' if a.algo == 'IF' else 'lof') }}</span>
+      <div><div class="nm">{{ a.name }}{{ ' (LOF)' if a.algo == 'LOF' }}</div><div class="ds">{{ a.desc|safe }}{{ '' if a.ok else ' — model belum tersedia' }}</div></div>
+      <span class="dot"></span>
+    </label>
+    {% endfor %}
+  </section>
+  <section>
+    <button class="btn btn-primary btn-lg" type="submit">{{ ic('play') }} Mulai Uji Model</button>
+    <div class="infobox">{{ ic('info') }}<div>Sistem ini hanya digunakan untuk menguji model yang telah dibangun. Tidak terdapat proses pelatihan. Pembersihan nilai kosong dan transformasi fitur dijalankan otomatis sesuai model.</div></div>
+  </section>
+</div>
+{% if show_options %}
+<div class="panel gap-top">
+  <h2 class="mb-2">Opsi Pengujian</h2>
+  <div class="row cols-3">
+    <div class="field"><label class="label">Target alarm palsu (FPR) / threshold</label>
+      <select name="fpr" class="select">{% for f in fpr_options %}<option value="{{ f }}" {{ 'selected' if f == fpr_now }}>{{ f|pctc(0) }}{{ ' (utama)' if f == 0.05 }}</option>{% endfor %}</select>
+      <div class="small muted mt-1">Makin kecil FPR, makin sedikit alarm palsu, tetapi makin banyak serangan yang lolos.</div></div>
+    <div class="field"><label class="label">Batas jumlah baris <span class="muted">(kosong = semua baris)</span></label>
+      <input type="number" name="max_rows" class="input" min="1000" step="1000" placeholder="semua baris" value="{{ max_rows or '' }}">
+      <div class="small muted mt-1">Sampel acak berstratifikasi. Berguna untuk mencoba file besar dengan cepat.</div></div>
+    <div class="field"><label class="label">Jalankan</label>
+      <div class="check"><input type="checkbox" name="both" value="1" id="both"><label for="both">Jalankan kedua model sekaligus (IF dan LOF)</label></div>
+      <div class="small muted mt-1">Hasil keduanya dibandingkan di halaman Perbandingan Model.</div></div>
+  </div>
+</div>
+{% endif %}
+</form>
+<script>
+(function(){
+  const input=document.getElementById('file'), dz=document.getElementById('dz'), chip=document.getElementById('chip'),
+        nm=document.getElementById('chipname'), sz=document.getElementById('chipsize'), x=document.getElementById('chipx');
+  const mb=b=>(b/1048576).toFixed(1).replace('.',',')+' MB';
+  function show(f){ if(!f){return;} nm.textContent=f.name; sz.textContent=mb(f.size); chip.dataset.server='0'; chip.classList.remove('hidden'); }
+  input.addEventListener('change',()=>show(input.files[0]));
+  ['dragenter','dragover'].forEach(e=>dz.addEventListener(e,ev=>{ev.preventDefault();dz.classList.add('drag');}));
+  ['dragleave','drop'].forEach(e=>dz.addEventListener(e,ev=>{ev.preventDefault();dz.classList.remove('drag');}));
+  dz.addEventListener('drop',ev=>{ if(ev.dataTransfer.files.length){input.files=ev.dataTransfer.files;show(input.files[0]);} });
+  x.addEventListener('click',async()=>{
+    if(chip.dataset.server==='1'){ await fetch('{{ url_for("hapus_file") }}',{method:'POST'}); location.reload(); }
+    else{ input.value=''; chip.classList.add('hidden'); }
+  });
+})();
+</script>

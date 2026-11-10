@@ -1,0 +1,43 @@
+{% extends "base.html" %}{% from "_icons.html" import ic %}
+{% block pagetitle %}Dataset Latih — DDoS Detection{% endblock %}
+{% block title %}Pelatihan: Dataset Latih{% endblock %}
+{% block sub %}Muat dataset latih berlabel (mis. train_sandbox_v3.csv). File yang ingin dideteksi diunggah di halaman Uji Model, bukan di sini.{% endblock %}
+{% block content %}
+{% set step = 1 %}{% include "_steps.html" %}
+<div class="panel">
+  <h2 class="mb-2">Unggah file CSV dataset latih</h2>
+  <form method="post" enctype="multipart/form-data" data-busy="Mengunggah dan memuat...">
+    <input type="hidden" name="aksi" value="unggah">
+    <div class="field"><input type="file" name="file" accept=".csv" class="input" required></div>
+    <button class="btn btn-primary" type="submit">{{ ic('upload') }} Unggah dan Muat</button>
+    <div class="small muted mt-2">File besar (ratusan MB) membutuhkan waktu unggah dan pemuatan. Tunggu sampai muncul pesan "Dataset latih dimuat".</div>
+  </form>
+</div>
+{% if info %}
+<div class="panel gap-top">
+  <div class="ptitle-row">
+    <div><b>{{ TRAIN.fname }}</b> <span class="muted">— {{ info.n_rows|fmt }} baris, {{ info.n_cols }} kolom</span></div>
+    <form method="post" class="rowflex"><input type="hidden" name="aksi" value="label">
+      <label class="small muted">Kolom label</label>
+      <select name="label" class="select" style="width:auto"><option value="__none__">(tidak ada label)</option>{% for c in cols %}<option value="{{ c }}" {{ 'selected' if c == TRAIN.label }}>{{ c }}</option>{% endfor %}</select>
+      <button class="btn btn-ghost btn-sm" type="submit">Simpan</button></form>
+  </div>
+  {% if not TRAIN.label %}<div class="alert danger">{{ ic('info') }}<div>Dataset latih membutuhkan kolom label agar trafik normal bisa dipilih sebagai data acuan.</div></div>{% endif %}
+  <div class="kv">
+    <div class="it"><div class="l">Sel kosong (NaN)</div><div class="v">{{ info.n_missing|fmt }} <small>sel</small></div></div>
+    <div class="it"><div class="l">Sel tak hingga (inf)</div><div class="v">{{ info.n_inf|fmt }} <small>sel</small></div></div>
+    <div class="it"><div class="l">Baris duplikat</div><div class="v">{{ info.n_dup|fmt }} <small>baris</small></div></div>
+    <div class="it"><div class="l">Fitur numerik</div><div class="v">{{ info.n_features }} <small>kolom</small></div></div>
+  </div>
+  {% if TRAIN.label %}<div class="mt-3"><a class="btn btn-primary" href="{{ url_for('latih_preprocessing') }}">Lanjut ke Preprocessing {{ ic('chevron-right') }}</a></div>{% endif %}
+</div>
+{% if dist %}
+<div class="panel gap-top"><h2 class="mb-2">Distribusi label (pelabelan dataset)</h2>
+<table class="tbl roomy"><thead><tr><th>Label</th><th class="num">Jumlah</th><th class="num">Porsi (%)</th></tr></thead><tbody>
+{% for d in dist %}<tr><td>{{ d.Label }}</td><td class="num">{{ d.Jumlah|fmt }} baris</td><td class="num">{{ d.Porsi|dec(2) }}%</td></tr>{% endfor %}</tbody></table></div>
+{% endif %}
+<div class="panel gap-top"><h2 class="mb-2">Pratinjau 50 baris pertama</h2>
+<div style="overflow:auto;max-height:420px"><table class="tbl"><thead><tr>{% for c in preview_cols %}<th class="nowrap">{{ c }}</th>{% endfor %}</tr></thead>
+<tbody>{% for row in preview %}<tr>{% for v in row %}<td class="nowrap">{{ v }}</td>{% endfor %}</tr>{% endfor %}</tbody></table></div></div>
+{% endif %}
+{% endblock %}

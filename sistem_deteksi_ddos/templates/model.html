@@ -1,0 +1,36 @@
+{% extends "base.html" %}{% from "_icons.html" import ic %}
+{% block pagetitle %}Detail Model — DDoS Detection{% endblock %}
+{% block title %}Detail Model{% endblock %}
+{% block sub %}Parameter, threshold, dan struktur model tersimpan.{% endblock %}
+{% block content %}
+<div class="steps"><a href="{{ url_for('pengaturan') }}" style="border-style:dashed">← Pengaturan</a></div>
+{% if b %}
+<div class="panel">
+  <div class="ptitle-row"><h2>{{ key }}</h2><a class="btn btn-outline btn-sm" href="{{ url_for('model_unduh', m=key) }}">{{ ic('download') }} Unduh model (.joblib)</a></div>
+  {% if version_warn %}<div class="alert warning">{{ ic('info') }}<div>Model dibuat dengan scikit-learn {{ b.sklearn_version }}, terpasang {{ sk_ver }}. Samakan versinya agar hasil identik.</div></div>{% endif %}
+  <div class="kv mb-2">
+    <div class="it"><div class="l">Algoritma</div><div class="v" style="font-size:15.5px">{{ ALGO_NAME.get(b.model_name, b.model_name) }}</div></div>
+    <div class="it"><div class="l">Seed</div><div class="v">{{ b.seed if b.seed is not none else '-' }}</div></div>
+    <div class="it"><div class="l">Jumlah fitur</div><div class="v">{{ b.features|length }} <small>kolom</small></div></div>
+    <div class="it"><div class="l">Transformasi</div><div class="v" style="font-size:15.5px">{{ b.preprocess }}</div></div>
+  </div>
+  {% if params_fmt %}<table class="tbl" style="width:auto;margin-bottom:10px"><thead><tr><th>Parameter</th><th>Nilai</th></tr></thead><tbody>
+  {% for k, v in params_fmt %}<tr><td>{{ k }}</td><td><b>{{ v }}</b></td></tr>{% endfor %}</tbody></table>{% endif %}
+  <p class="small" style="margin:0 0 6px"><b>Dilatih pada dataset:</b> {{ b.trained_on or '-' }}{% if b.n_train %} ({{ b.n_train|fmt }} baris normal){% endif %}</p>
+  {% if b.model_name == 'LOF' %}<p class="small" style="margin:0 0 6px">Data acuan (normal) yang disimpan model: {{ b.model.n_samples_fit_|fmt }} baris</p>{% endif %}
+  <table class="tbl" style="width:auto;margin-top:8px"><thead><tr><th>FPR target</th><th>Threshold skor</th></tr></thead><tbody>
+  {% for f, v in thr %}<tr><td>{{ f|pctc(0) }}</td><td>{{ v|dec(4) }}</td></tr>{% endfor %}</tbody></table>
+</div>
+{% if img %}
+<div class="panel gap-top">
+  <div class="ptitle-row"><h2>Visualisasi Isolation Tree (contoh)</h2>
+    <form method="get" class="rowflex"><input type="hidden" name="m" value="{{ key }}">
+      <label class="small muted">Pohon ke-</label><input type="number" name="tree" value="{{ tree_idx }}" min="0" max="{{ b.model.estimators_|length - 1 }}" class="input" style="width:90px">
+      <label class="small muted">Kedalaman (level)</label><select name="depth" class="select" style="width:80px">{% for d in range(1,6) %}<option {{ 'selected' if d == depth }}>{{ d }}</option>{% endfor %}</select>
+      <button class="btn btn-ghost btn-sm" type="submit">Tampilkan</button></form></div>
+  <img src="data:image/png;base64,{{ img }}" style="max-width:100%">
+  <div class="small muted mt-1">Setiap simpul memisahkan data dengan fitur dan nilai split acak. Data yang cepat terisolasi (lintasan pendek) mendapat skor anomali tinggi.</div>
+</div>
+{% endif %}
+{% else %}<div class="panel"><div class="empty">{{ ic('box') }}Belum ada model tersimpan.</div></div>{% endif %}
+{% endblock %}

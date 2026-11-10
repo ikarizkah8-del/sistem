@@ -1,0 +1,18 @@
+{% macro confusion(cm, lg=false) -%}
+<div class="cmwrap{{ ' lg' if lg }}">
+  <div class="cmy">Aktual</div>
+  <div class="cmmain">
+    <div class="cmgrid">
+      <div class="rl">Normal</div>
+      {% for c in cm.cells[0] %}<div class="cell{{ ' ok' if c.ok }}" style="background:{{ c.bg }};color:{{ c.fg }}" title="{{ c.hint }}">
+        <span class="tag">{{ c.tag }}</span><span class="v">{{ c.v|fmt }}</span><span class="p">{{ c.pct|pctc }}</span></div>{% endfor %}
+      <div class="rl">DDoS</div>
+      {% for c in cm.cells[1] %}<div class="cell{{ ' ok' if c.ok }}" style="background:{{ c.bg }};color:{{ c.fg }}" title="{{ c.hint }}">
+        <span class="tag">{{ c.tag }}</span><span class="v">{{ c.v|fmt }}</span><span class="p">{{ c.pct|pctc }}</span></div>{% endfor %}
+      <div></div><div class="cl">Normal</div><div class="cl">DDoS</div>
+    </div>
+    <div class="cmx">Prediksi <span class="u">— angka dalam flow</span></div>
+  </div>
+  <div class="cbar"><div class="grad"></div><div class="tk">{% for t in cm.ticks|reverse %}<span>{{ t|fmt }}</span>{% endfor %}</div></div>
+</div>
+{%- endmacro %}

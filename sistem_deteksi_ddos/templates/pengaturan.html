@@ -1,0 +1,55 @@
+{% extends "base.html" %}{% from "_icons.html" import ic %}
+{% block pagetitle %}Pengaturan — DDoS Detection{% endblock %}
+{% block title %}Pengaturan{% endblock %}
+{% block sub %}Model aktif, target alarm palsu, dan daftar model tersimpan.{% endblock %}
+{% block content %}
+<div class="row cols-set">
+  <div class="panel">
+    <div class="ptitle-row"><h2>Model aktif &amp; threshold</h2></div>
+    <form method="post">
+      <input type="hidden" name="aksi" value="simpan">
+      <div class="formgrid">
+        {% for a in algos %}
+        <div class="field">
+          <label class="label">{{ a.name }}</label>
+          {% if a.options %}
+          <select name="active_{{ a.algo }}" class="select">{% for k in a.options %}<option value="{{ k }}" {{ 'selected' if k == a.active }}>{{ k }}</option>{% endfor %}</select>
+          <div class="hint">{{ a.options|length }} model tersedia di folder models/.</div>
+          {% else %}
+          <select class="select" disabled><option>Belum ada model {{ a.algo }}</option></select>
+          <div class="hint">Salin file <code>.joblib</code> ke folder models/.</div>
+          {% endif %}
+        </div>
+        {% endfor %}
+        <div class="field">
+          <label class="label">Target alarm palsu (FPR)</label>
+          <select name="fpr" class="select">{% for f in fpr_options %}<option value="{{ f }}" {{ 'selected' if f == fpr_now }}>{{ f|pctc(0) }}{{ ' (utama)' if f == 0.05 }}</option>{% endfor %}</select>
+          <div class="hint">Ambang skor anomali. Makin kecil, makin sedikit alarm palsu.</div>
+        </div>
+      </div>
+      <div class="form-foot">
+        <button class="btn btn-primary" type="submit">{{ ic('check-circle') }} Simpan pengaturan</button>
+        <span class="small muted">Menyimpan pengaturan menghapus hasil deteksi yang sedang tampil.</span>
+      </div>
+    </form>
+  </div>
+
+  <div class="panel">
+    <div class="ptitle-row"><h2>Sesi</h2></div>
+    <div class="legend-note" style="margin-top:0">{{ ic('info') }}<span>Menghapus file uji dan hasil deteksi dari memori. Model dan pengaturan tidak berubah.</span></div>
+    <form method="post" class="mt-3"><input type="hidden" name="aksi" value="reset"><button class="btn btn-danger" type="submit">{{ ic('trash') }} Hapus file dan hasil</button></form>
+  </div>
+</div>
+
+<div class="panel gap-top">
+  <div class="ptitle-row"><h2>Model tersimpan <span class="small muted">(folder models/)</span></h2>{% if rows %}<span class="badge">{{ rows|length }} model</span>{% endif %}</div>
+  {% if not rows %}<div class="empty">{{ ic('box') }}Belum ada file <code>.joblib</code>.<br>Salin file model ke folder <code>models/</code> agar muncul di sini.</div>
+  {% else %}
+  <table class="tbl roomy"><thead><tr><th>Model</th><th>Algoritma</th><th>Seed</th><th>Dilatih pada</th><th>Dibuat</th><th></th></tr></thead><tbody>
+  {% for m in rows %}{% if m.error %}<tr><td>{{ m.key }}</td><td colspan="5" style="color:#a61e25">{{ m.error }}</td></tr>
+  {% else %}<tr><td><b>{{ m.key }}</b></td><td>{{ ALGO_NAME.get(m.algo, m.algo) }}</td><td>{{ m.seed if m.seed is not none else '-' }}</td><td>{{ m.trained_on or '-' }}</td><td>{{ m.created or '-' }}</td>
+  <td class="right"><a class="btn btn-ghost btn-sm" href="{{ url_for('model', m=m.key) }}">Detail</a></td></tr>{% endif %}{% endfor %}
+  </tbody></table>{% endif %}
+</div>
+
+{% endblock %}

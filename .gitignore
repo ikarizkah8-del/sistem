@@ -1,0 +1,27 @@
+# --- File besar (melebihi batas 100 MB GitHub / tidak perlu di-versioning) ---
+sistem_deteksi_ddos/models/*.joblib
+sistem_deteksi_ddos/uploads/*.csv
+
+# --- Dokumen skripsi (belum di-push) ---
+*.docx
+*.doc
+*.pdf
+~$*
+
+# --- Python ---
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+venv/
+env/
+*.egg-info/
+.pytest_cache/
+.ipynb_checkpoints/
+
+# --- OS / editor ---
+Thumbs.db
+desktop.ini
+.DS_Store
+.vscode/
+.idea/

@@ -1,0 +1,28 @@
+{% extends "base.html" %}{% from "_icons.html" import ic %}
+{% block pagetitle %}Data Acuan — DDoS Detection{% endblock %}
+{% block title %}Pelatihan: Data Acuan{% endblock %}
+{% block sub %}Seluruh trafik normal pada dataset latih menjadi data acuan: tanpa pembagian data dan tanpa batas jumlah.{% endblock %}
+{% block content %}
+{% set step = 3 %}{% include "_steps.html" %}
+<div class="alert info">{{ ic('info') }}<div>Baris serangan tidak dipakai melatih karena model hanya mempelajari pola normal. Kualitas model diuji di halaman Uji Model memakai file uji.</div></div>
+<div class="row cols-2">
+<div class="panel">
+  <form method="post" data-busy="Memproses...">
+    <div class="field"><label class="label">Seed <span class="muted">(menjadi bagian nama model, mis. IF_seed42)</span></label>
+    <input type="number" name="seed" class="input" value="{{ sp.seed if sp else 42 }}"></div>
+    <button class="btn btn-primary" type="submit">Tetapkan Data Acuan</button>
+  </form>
+  <div class="small muted mt-2">Threshold anomali ditentukan dari skor data latih itu sendiri, sehingga tidak ada data yang disisihkan untuk kalibrasi.</div>
+</div>
+<div class="panel">
+{% if sp %}
+  <h2 class="mb-2">Ringkasan Data Acuan</h2>
+  <table class="tbl roomy"><thead><tr><th>Jenis data</th><th class="num">Jumlah <small>(baris)</small></th><th class="num">Persentase</th></tr></thead><tbody>
+  <tr><td>Data acuan: <b>seluruh trafik normal</b> (dipakai melatih)</td><td class="num">{{ sp.fit|length|fmt }}</td><td class="num">{{ (sp.fit|length / sp.n_total * 100)|dec(1) }}%</td></tr>
+  <tr><td>Trafik serangan (tidak dipakai melatih)</td><td class="num">{{ sp.n_attack|fmt }}</td><td class="num">{{ (sp.n_attack / sp.n_total * 100)|dec(1) }}%</td></tr>
+  <tr><td><b>Total baris dataset latih</b></td><td class="num"><b>{{ sp.n_total|fmt }}</b></td><td class="num">100%</td></tr></tbody></table>
+  <div class="small muted mt-2">Tidak ada batas maksimum jumlah data. Seluruh {{ sp.fit|length|fmt }} baris normal dipakai oleh Isolation Forest maupun LOF.</div>
+  <div class="mt-3"><a class="btn btn-primary" href="{{ url_for('latih_model') }}">Lanjut ke Pelatihan Model {{ ic('chevron-right') }}</a></div>
+{% else %}<div class="empty">{{ ic('database') }}Data acuan belum ditetapkan.</div>{% endif %}
+</div></div>
+{% endblock %}

@@ -1,0 +1,84 @@
+{% extends "base.html" %}{% from "_icons.html" import ic %}
+{% block pagetitle %}Uji Model — DDoS Detection{% endblock %}
+{% block title %}Uji Model{% endblock %}
+{% block sub %}Unggah file uji, pilih model, dan atur opsi pengujian. Sistem hanya mendeteksi, tidak melatih.{% endblock %}
+{% block content %}
+{% set next = 'uji' %}{% set show_options = True %}
+{% include "_runform.html" %}
+
+<div class="row cols-2 gap-top">
+  <div class="panel">
+    <div class="ptitle-row"><h2>Berkas yang Dimuat</h2>{% if finfo %}<span class="badge">{{ finfo.fsize }}</span>{% endif %}</div>
+    {% if not finfo %}
+    <div class="empty">{{ ic('upload') }}Belum ada file uji di memori.<br>Pilih file CSV di atas lalu tekan <b>Mulai Uji Model</b>.</div>
+    {% else %}
+    <dl class="spec">
+      <dt>Nama berkas</dt><dd class="break">{{ finfo.fname }}</dd>
+      <dt>Jumlah baris</dt><dd>{{ finfo.rows|fmt }} baris</dd>
+      <dt>Jumlah kolom</dt><dd>{{ finfo.cols|fmt }} kolom</dd>
+      <dt>Kolom label</dt><dd>{% if finfo.label %}<code>{{ finfo.label }}</code>{% else %}<span class="muted">tidak ada</span>{% endif %}</dd>
+    </dl>
+    <div class="checklist">
+      <div class="ck {{ 'ok' if finfo.n_missing == 0 else 'bad' }}">
+        <span class="ci">{{ ic('check-circle' if finfo.n_missing == 0 else 'alert') }}</span>
+        <div><b>{% if finfo.n_missing == 0 %}Kolom fitur lengkap{% else %}{{ finfo.n_missing }} kolom fitur tidak ditemukan{% endif %}</b>
+          <div class="d">{% if finfo.n_missing == 0 %}Seluruh {{ n_features }} kolom yang dibutuhkan model tersedia.{% else %}Mis.: {{ finfo.missing|join(', ') }}. Pengujian akan ditolak.{% endif %}</div>
+        </div>
+      </div>
+      <div class="ck {{ 'ok' if finfo.label else 'neutral' }}">
+        <span class="ci">{{ ic('check-circle' if finfo.label else 'info') }}</span>
+        <div><b>{% if finfo.label %}Evaluasi tersedia{% else %}Tanpa evaluasi{% endif %}</b>
+          <div class="d">{% if finfo.label %}Confusion matrix dan metrik akan dihitung dari kolom <code>{{ finfo.label }}</code>.{% else %}Tanpa kolom Label, sistem hanya menghasilkan prediksi tanpa metrik.{% endif %}</div>
+        </div>
+      </div>
+    </div>
+    {% endif %}
+  </div>
+
+  <div class="panel">
+    <div class="ptitle-row"><h2>Pengujian Terakhir</h2>{% if last %}<a class="btn btn-ghost btn-sm" href="{{ url_for('hasil') }}">{{ ic('detect') }} Hasil Deteksi</a>{% endif %}</div>
+    {% if not last %}
+    <div class="empty">{{ ic('detect') }}Belum ada pengujian pada sesi ini.<br>Hasilnya akan muncul di sini setelah proses selesai.</div>
+    {% else %}
+    {% for x in last %}
+    <div class="runcard">
+      <div class="rc-top">
+        <span class="mi">{{ ic('tree' if x.algo == 'IF' else 'lof') }}</span>
+        <div class="grow"><div class="nm">{{ x.name }}</div><div class="ky">{{ x.key }}</div></div>
+        {% if x.acc is not none %}<span class="badge ok">Accuracy {{ x.acc|dec }}</span>{% endif %}
+      </div>
+      <div class="rc-grid">
+        <div><span class="l">Flow diperiksa</span><span class="v">{{ x.n|fmt }} <small>flow</small>{% if x.sampled %} <small class="muted">dari {{ x.n_file|fmt }}</small>{% endif %}</span></div>
+        <div><span class="l">Terdeteksi DDoS</span><span class="v red">{{ x.n_att|fmt }} <small>flow</small></span></div>
+        <div><span class="l">FPR / threshold</span><span class="v">{{ x.fpr|pctc(0) }} · {{ x.thr|dec(4) }} <small>skor</small></span></div>
+        <div><span class="l">Waktu proses</span><span class="v">{{ x.t|dur }}</span></div>
+      </div>
+    </div>
+    {% endfor %}
+    {% if last|length > 1 %}<div class="mt-2"><a class="btn btn-outline btn-sm" href="{{ url_for('perbandingan') }}">{{ ic('compare') }} Bandingkan kedua model</a></div>{% endif %}
+    {% endif %}
+  </div>
+</div>
+
+<div class="row cols-2 gap-top">
+  <div class="panel">
+    <div class="ptitle-row"><h2>Model yang Dipakai</h2><a class="btn btn-ghost btn-sm" href="{{ url_for('pengaturan') }}">{{ ic('gear') }} Ganti</a></div>
+    {% if not model_rows %}<div class="empty">{{ ic('box') }}Belum ada model tersimpan. Salin file <code>.joblib</code> ke folder <code>models/</code>.</div>
+    {% else %}
+    <table class="tbl roomy"><thead><tr><th>Algoritma</th><th>Model</th><th>Dilatih pada</th><th class="num">Fitur</th></tr></thead><tbody>
+    {% for m in model_rows %}<tr><td>{{ m.name }}</td><td><b>{{ m.key }}</b></td><td>{{ m.trained_on or '-' }}</td><td class="num">{{ m.n_features }}</td></tr>{% endfor %}
+    </tbody></table>
+    {% endif %}
+  </div>
+  <div class="panel">
+    <div class="ptitle-row"><h2>Persyaratan File Uji</h2></div>
+    <ul class="reqs">
+      <li>Format <b>CSV</b> dengan nama kolom fitur yang sama dengan data latih model ({{ n_features or 73 }} kolom, gaya CICFlowMeter).</li>
+      <li>Urutan kolom bebas, kolom tambahan diabaikan.</li>
+      <li>Kolom <code>Label</code> boleh ada untuk evaluasi, tetapi tidak wajib.</li>
+      <li><b>Bukan data latih.</b> File yang dikenali sebagai data latih model akan ditolak, termasuk jika namanya diubah.</li>
+    </ul>
+    {% if features %}<details class="mt-2"><summary>Daftar {{ n_features }} kolom fitur yang dibutuhkan</summary><div class="small muted mt-1 break">{{ features|join(', ') }}</div></details>{% endif %}
+  </div>
+</div>
+{% endblock %}

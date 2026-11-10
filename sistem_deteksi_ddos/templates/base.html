@@ -1,0 +1,107 @@
+{% from "_icons.html" import ic %}
+<!doctype html>
+<html lang="id">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>{% block pagetitle %}DDoS Detection{% endblock %}</title>
+<link href="{{ url_for('static', filename='style.css') }}" rel="stylesheet">
+</head>
+<body>
+<nav class="sidebar">
+  <div class="brand">
+    <span class="logo">{{ ic('shield-big') }}</span>
+    <div><div class="t1">DDoS Detection</div><div class="t2">Network Traffic Anomaly</div></div>
+  </div>
+  <div class="menu">
+    {% for key, label, icon in NAV %}
+    <a href="{{ url_for(key) }}" class="{{ 'active' if nav == key }}">{{ ic(icon) }}<span>{{ label }}</span></a>
+    {% endfor %}
+  </div>
+  <div class="side-foot">
+    {{ ic('info') }}
+    <div><div class="a">Sistem Deteksi Anomali<br>Trafik Jaringan DDoS</div><div class="b">Isolation Forest &amp; Local Outlier Factor</div></div>
+  </div>
+</nav>
+
+{% if JOB.state == 'running' %}
+<div class="jobbar" id="jobbar">
+  <div class="t">
+    <span id="jobstage">{{ JOB.stage or 'Memproses...' }}</span>
+    <span class="jr">
+      <b id="jobpct">{{ (JOB.progress * 100)|round(0)|int }}%</b> · <span id="jobtime">00:00:00</span>
+      {% if JOB.cancelable %}
+      <button type="button" class="jbtn" id="jobpause">{{ ic('pause') }}<span id="jobpauselbl">Jeda</span></button>
+      <button type="button" class="jbtn stop" id="jobstop">{{ ic('stop') }}Hentikan</button>
+      {% endif %}
+    </span>
+  </div>
+  <div class="bar"><i id="jobfill" style="width:{{ [3, (JOB.progress * 100)|round(0)]|max }}%"></i></div>
+</div>
+{% endif %}
+
+<main class="main">
+  {% if JOB.state == 'running' %}<div class="jobpad"></div>{% endif %}
+  <div class="topbar">
+    <div>
+      <h1>{% block title %}{% endblock %}</h1>
+      <div class="sub">{% block sub %}{% endblock %}</div>
+    </div>
+  </div>
+
+  <div class="flash">
+  {% if job_msg %}<div class="alert {{ job_msg[0] }}">{{ ic('info') }}<div>{{ job_msg[1] }}</div></div>{% endif %}
+  {% with msgs = get_flashed_messages(with_categories=true) %}
+  {% for cat, m in msgs %}<div class="alert {{ cat }}">{{ ic('info') }}<div>{{ m }}</div></div>{% endfor %}
+  {% endwith %}
+  </div>
+
+  {% block content %}{% endblock %}
+</main>
+
+<script>
+document.querySelectorAll('form[data-busy]').forEach(f=>f.addEventListener('submit',()=>{
+  const b=f.querySelector('button[type=submit],button:not([type])'); if(b){setTimeout(()=>{b.disabled=true;b.dataset.old=b.innerHTML;b.innerHTML=f.dataset.busy;},0);}}));
+{% if JOB.state == 'running' %}
+(function(){
+  const pad=n=>String(n).padStart(2,'0'), hms=s=>pad(Math.floor(s/3600))+':'+pad(Math.floor(s%3600/60))+':'+pad(Math.floor(s%60));
+  const bar=document.getElementById('jobbar'), pauseBtn=document.getElementById('jobpause'),
+        pauseLbl=document.getElementById('jobpauselbl'), stopBtn=document.getElementById('jobstop');
+  let control='run';
+  function paint(){
+    if(!pauseBtn) return;
+    const p = control==='pause';
+    pauseLbl.textContent = p ? 'Lanjutkan' : 'Jeda';
+    pauseBtn.classList.toggle('on', p);
+    bar.classList.toggle('paused', p);
+  }
+  async function send(aksi){
+    try{
+      const r=await fetch('{{ url_for("job_kontrol", aksi="__A__") }}'.replace('__A__',aksi),{method:'POST'});
+      const j=await r.json(); if(j.control){control=j.control; paint();}
+    }catch(e){}
+  }
+  if(pauseBtn) pauseBtn.addEventListener('click',()=>send(control==='pause'?'resume':'pause'));
+  if(stopBtn) stopBtn.addEventListener('click',()=>{
+    stopBtn.disabled=true; if(pauseBtn) pauseBtn.disabled=true;
+    document.getElementById('jobstage').textContent='Menghentikan proses...';
+    send('stop');
+  });
+  async function tick(){
+    try{
+      const r=await fetch('{{ url_for("status") }}',{cache:'no-store'}); const j=await r.json();
+      if(!stopBtn || !stopBtn.disabled) document.getElementById('jobstage').textContent=j.stage||'Memproses...';
+      document.getElementById('jobtime').textContent=hms(j.elapsed);
+      document.getElementById('jobfill').style.width=Math.max(3,Math.round(j.progress*100))+'%';
+      document.getElementById('jobpct').textContent=Math.round(j.progress*100)+'%';
+      if(j.control && j.control!==control){control=j.control; paint();}
+      if(j.state!=='running'){location.reload();return;}
+    }catch(e){}
+    setTimeout(tick,1000);
+  }
+  tick();
+})();
+{% endif %}
+</script>
+{% block scripts %}{% endblock %}
+</body>
+</html>

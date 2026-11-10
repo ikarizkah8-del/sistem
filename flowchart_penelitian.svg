@@ -1,0 +1,135 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 1810" width="1000" height="1810" font-family="Arial, Helvetica, sans-serif">
+  <defs>
+    <marker id="ah" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#000"/>
+    </marker>
+  </defs>
+  <style>
+    .s { fill:#fff; stroke:#000; stroke-width:1.6; }
+    .l { stroke:#000; stroke-width:1.6; fill:none; marker-end:url(#ah); }
+    .p { stroke:#000; stroke-width:1.6; fill:none; }
+    text { font-size:13px; fill:#000; }
+    .e { font-size:12.5px; }
+  </style>
+  <rect x="0" y="0" width="1000" height="1810" fill="#fff"/>
+
+  <!-- A Mulai -->
+  <ellipse class="s" cx="460" cy="42" rx="78" ry="28"/>
+  <text x="460" y="47" text-anchor="middle">Mulai</text>
+  <path class="l" d="M 460 70 L 460 100"/>
+
+  <!-- B Pengumpulan Dataset -->
+  <polygon class="s" points="330,100 610,100 590,158 310,158"/>
+  <text x="460" y="126" text-anchor="middle"><tspan x="460">Pengumpulan Dataset</tspan><tspan x="460" dy="15">DDoS-Sandbox</tspan></text>
+  <path class="l" d="M 460 158 L 460 198"/>
+
+  <!-- C Preprocessing -->
+  <rect class="s" x="300" y="198" width="320" height="64"/>
+  <text x="460" y="227" text-anchor="middle"><tspan x="460">Preprocessing Data</tspan><tspan x="460" dy="15">(nilai inf/NaN diganti 0, seleksi 73 fitur)</tspan></text>
+  <path class="l" d="M 460 262 L 460 302"/>
+
+  <!-- D Penyusunan dua berkas -->
+  <rect class="s" x="290" y="302" width="340" height="64"/>
+  <text x="460" y="331" text-anchor="middle"><tspan x="460">Penyusunan Dataset menjadi</tspan><tspan x="460" dy="15">Dua Berkas Terpisah</tspan></text>
+  <path class="p" d="M 460 366 L 460 385 M 270 385 L 680 385"/>
+  <path class="l" d="M 270 385 L 270 406"/>
+  <path class="l" d="M 680 385 L 680 406"/>
+
+  <!-- E Data Latih -->
+  <polygon class="s" points="168,406 390,406 372,462 150,462"/>
+  <text x="270" y="439" text-anchor="middle">Data Latih</text>
+  <path class="l" d="M 270 462 L 270 502"/>
+
+  <!-- F Data Uji -->
+  <polygon class="s" points="578,406 800,406 782,462 560,462"/>
+  <text x="680" y="439" text-anchor="middle">Data Uji</text>
+  <path class="l" d="M 680 462 L 680 542"/>
+
+  <!-- G Data Acuan -->
+  <rect class="s" x="120" y="502" width="300" height="64"/>
+  <text x="270" y="531" text-anchor="middle"><tspan x="270">Penentuan Data Acuan</tspan><tspan x="270" dy="15">(seluruh trafik BENIGN)</tspan></text>
+  <path class="p" d="M 270 566 L 270 600 M 150 600 L 400 600"/>
+  <path class="l" d="M 150 600 L 150 620"/>
+  <path class="l" d="M 400 600 L 400 620"/>
+
+  <!-- H1 Transformasi IF -->
+  <rect class="s" x="35" y="620" width="230" height="72"/>
+  <text x="150" y="653" text-anchor="middle"><tspan x="150">Transformasi Fitur:</tspan><tspan x="150" dy="15">signed log1p</tspan></text>
+  <path class="l" d="M 150 692 L 150 726"/>
+
+  <!-- H2 Transformasi LOF -->
+  <rect class="s" x="285" y="620" width="230" height="72"/>
+  <text x="400" y="646" text-anchor="middle"><tspan x="400">Transformasi Fitur:</tspan><tspan x="400" dy="15">signed log1p +</tspan><tspan x="400" dy="15">StandardScaler</tspan></text>
+  <path class="l" d="M 400 692 L 400 726"/>
+
+  <!-- I1 Model IF -->
+  <rect class="s" x="35" y="726" width="230" height="72"/>
+  <text x="150" y="759" text-anchor="middle"><tspan x="150">Pembangunan Model</tspan><tspan x="150" dy="15">Isolation Forest</tspan></text>
+
+  <!-- I2 Model LOF -->
+  <rect class="s" x="285" y="726" width="230" height="72"/>
+  <text x="400" y="759" text-anchor="middle"><tspan x="400">Pembangunan Model</tspan><tspan x="400" dy="15">Local Outlier Factor</tspan></text>
+
+  <path class="p" d="M 150 798 L 150 814 M 400 798 L 400 814 M 150 814 L 400 814"/>
+  <path class="l" d="M 275 814 L 275 832"/>
+
+  <!-- J Ambang batas -->
+  <rect class="s" x="85" y="832" width="380" height="76"/>
+  <text x="275" y="860" text-anchor="middle"><tspan x="275">Penentuan Ambang Batas dari</tspan><tspan x="275" dy="15">Persentil Skor Data Latih</tspan><tspan x="275" dy="15">(target FPR 1% dan 5%)</tspan></text>
+  <path class="l" d="M 275 908 L 275 944"/>
+
+  <!-- K Model tersimpan -->
+  <polygon class="s" points="163,944 405,944 387,1000 145,1000"/>
+  <text x="275" y="977" text-anchor="middle">Model Tersimpan (.joblib)</text>
+  <path class="p" d="M 275 1000 L 275 1076"/>
+  <path class="l" d="M 275 1076 L 290 1076"/>
+
+  <!-- L Pengaman data latih -->
+  <polygon class="s" points="680,542 785,600 680,658 575,600"/>
+  <text x="680" y="593" text-anchor="middle"><tspan x="680">Berkas uji =</tspan><tspan x="680" dy="15">data latih?</tspan></text>
+  <path class="l" d="M 785 600 L 805 600"/>
+  <text class="e" x="793" y="590" text-anchor="middle">Ya</text>
+  <ellipse class="s" cx="890" cy="600" rx="85" ry="30"/>
+  <text x="890" y="605" text-anchor="middle">Pengujian Ditolak</text>
+  <text class="e" x="694" y="680">Tidak</text>
+  <path class="p" d="M 680 658 L 680 1076"/>
+  <path class="l" d="M 680 1076 L 630 1076"/>
+
+  <!-- O Deteksi -->
+  <rect class="s" x="290" y="1040" width="340" height="72"/>
+  <text x="460" y="1073" text-anchor="middle"><tspan x="460">Deteksi Anomali pada Data Uji</tspan><tspan x="460" dy="15">(skor anomali &gt; ambang batas)</tspan></text>
+  <path class="l" d="M 460 1112 L 460 1152"/>
+
+  <!-- P Evaluasi -->
+  <rect class="s" x="260" y="1152" width="400" height="90"/>
+  <text x="460" y="1179" text-anchor="middle"><tspan x="460">Evaluasi Model:</tspan><tspan x="460" dy="15">Accuracy, Precision, Recall, F1-Score,</tspan><tspan x="460" dy="15">ROC-AUC, PR-AUC, FPR aktual,</tspan><tspan x="460" dy="15">Confusion Matrix</tspan></text>
+  <path class="l" d="M 460 1242 L 460 1278"/>
+
+  <!-- Q Sesuai? -->
+  <polygon class="s" points="460,1278 538,1330 460,1382 382,1330"/>
+  <text x="460" y="1335" text-anchor="middle">Sesuai?</text>
+  <text class="e" x="200" y="1320" text-anchor="middle">Tidak</text>
+  <text class="e" x="474" y="1400">Ya</text>
+  <path class="p" d="M 382 1330 L 25 1330 L 25 600"/>
+  <path class="l" d="M 25 600 L 268 600"/>
+  <path class="l" d="M 460 1382 L 460 1412"/>
+
+  <!-- R Perbandingan -->
+  <rect class="s" x="270" y="1412" width="380" height="72"/>
+  <text x="460" y="1445" text-anchor="middle"><tspan x="460">Perbandingan Kinerja dan Waktu</tspan><tspan x="460" dy="15">Komputasi Isolation Forest dan LOF</tspan></text>
+  <path class="l" d="M 460 1484 L 460 1524"/>
+
+  <!-- S Penerapan -->
+  <rect class="s" x="270" y="1524" width="380" height="72"/>
+  <text x="460" y="1557" text-anchor="middle"><tspan x="460">Penerapan Model pada Sistem</tspan><tspan x="460" dy="15">Deteksi Berbasis Web (Flask)</tspan></text>
+  <path class="l" d="M 460 1596 L 460 1636"/>
+
+  <!-- T Analisis -->
+  <rect class="s" x="290" y="1636" width="340" height="64"/>
+  <text x="460" y="1673" text-anchor="middle">Analisis Hasil dan Kesimpulan</text>
+  <path class="l" d="M 460 1700 L 460 1732"/>
+
+  <!-- U Selesai -->
+  <ellipse class="s" cx="460" cy="1760" rx="78" ry="28"/>
+  <text x="460" y="1765" text-anchor="middle">Selesai</text>
+</svg>

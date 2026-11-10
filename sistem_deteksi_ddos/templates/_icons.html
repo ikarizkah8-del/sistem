@@ -1,0 +1,38 @@
+{# Ikon SVG inline (gaya garis). Pemakaian: {% from "_icons.html" import ic %}{{ ic('home') }} #}
+{% macro ic(name, cls='') -%}
+<svg class="ic {{ cls }}" viewBox="0 0 24 24" aria-hidden="true">
+{%- if name == 'shield' %}<path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
+{%- elif name == 'shield-check' %}<path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><polyline points="9 12 11 14 15 10"/>
+{%- elif name == 'shield-big' %}<path d="M12 2.2 4 5v6.6c0 5 3.4 8.6 8 10.2 4.6-1.6 8-5.2 8-10.2V5z" fill="currentColor" stroke="none"/><path d="M12 2.2v19.6c-4.6-1.6-8-5.2-8-10.2V5z" fill="#4d7fcf" stroke="none"/><path d="M9 11.6l2.2 2.2L15.4 9.6" stroke="#132a45" stroke-width="2.2"/>
+{%- elif name == 'home' %}<path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" fill="currentColor"/><polyline points="9 22 9 12 15 12 15 22" stroke="#1f5191"/>
+{%- elif name == 'clipboard' %}<rect x="4" y="3" width="16" height="18" rx="2"/><line x1="8" y1="9" x2="16" y2="9"/><line x1="8" y1="13" x2="16" y2="13"/><line x1="8" y1="17" x2="13" y2="17"/>
+{%- elif name == 'detect' %}<circle cx="12" cy="12" r="10"/><path d="M12 7v6"/><polyline points="9 11 12 14 15 11"/><line x1="9" y1="17" x2="15" y2="17"/>
+{%- elif name == 'compare' %}<circle cx="6" cy="6" r="2.2"/><circle cx="18" cy="8" r="2.2"/><circle cx="8" cy="18" r="2.2"/><circle cx="18" cy="17" r="2.2"/><line x1="8" y1="7" x2="16" y2="7.6"/><line x1="7" y1="8" x2="7.6" y2="16"/><line x1="10" y1="17.6" x2="16" y2="17"/>
+{%- elif name == 'gear' %}<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>
+{%- elif name == 'database' %}<ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"/><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"/>
+{%- elif name == 'check-circle' %}<circle cx="12" cy="12" r="10" fill="currentColor"/><polyline points="7.5 12.5 10.5 15.5 16.5 9" stroke="#fff" stroke-width="2.4"/>
+{%- elif name == 'alert' %}<path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z" fill="currentColor"/><line x1="12" y1="9" x2="12" y2="13" stroke="#fff" stroke-width="2.4"/><line x1="12" y1="17" x2="12.01" y2="17" stroke="#fff" stroke-width="2.6"/>
+{%- elif name == 'clock' %}<circle cx="12" cy="12" r="10" fill="currentColor"/><polyline points="12 6.5 12 12 15.8 14" stroke="#fff" stroke-width="2.2"/>
+{%- elif name == 'upload' %}<polyline points="16 16 12 12 8 16"/><line x1="12" y1="12" x2="12" y2="21"/><path d="M20.39 18.39A5 5 0 0 0 18 9h-1.26A8 8 0 1 0 3 16.3"/>
+{%- elif name == 'file' %}<path d="M13 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><polyline points="13 2 13 9 20 9"/>
+{%- elif name == 'x' %}<line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
+{%- elif name == 'play' %}<polygon points="6 4 20 12 6 20 6 4"/>
+{%- elif name == 'pause' %}<rect x="6" y="4" width="4.2" height="16" rx="1.2" fill="currentColor" stroke="none"/><rect x="13.8" y="4" width="4.2" height="16" rx="1.2" fill="currentColor" stroke="none"/>
+{%- elif name == 'stop' %}<rect x="5.5" y="5.5" width="13" height="13" rx="2.2" fill="currentColor" stroke="none"/>
+{%- elif name == 'info' %}<circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/>
+{%- elif name == 'tree' %}<circle cx="12" cy="5" r="2.6"/><circle cx="6" cy="14" r="2.6"/><circle cx="18" cy="14" r="2.6"/><circle cx="12" cy="21" r="0.1"/><path d="M12 7.6V11M12 11l-5 1.6M12 11l5 1.6"/><path d="M6 16.6V20M18 16.6V20"/>
+{%- elif name == 'lof' %}<circle cx="12" cy="12" r="3"/><circle cx="12" cy="3.5" r="1.4"/><circle cx="12" cy="20.5" r="1.4"/><circle cx="3.5" cy="12" r="1.4"/><circle cx="20.5" cy="12" r="1.4"/><circle cx="6" cy="6" r="1.2"/><circle cx="18" cy="18" r="1.2"/><circle cx="18" cy="6" r="1.2"/><circle cx="6" cy="18" r="1.2"/>
+{%- elif name == 'user' %}<path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/>
+{%- elif name == 'chevron-down' %}<polyline points="6 9 12 15 18 9"/>
+{%- elif name == 'chevron-left' %}<polyline points="15 18 9 12 15 6"/>
+{%- elif name == 'chevron-right' %}<polyline points="9 18 15 12 9 6"/>
+{%- elif name == 'download' %}<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/>
+{%- elif name == 'target' %}<circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="6"/><circle cx="12" cy="12" r="2" fill="currentColor"/>
+{%- elif name == 'precision' %}<path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" fill="currentColor" stroke="none"/><polyline points="8.5 12 11 14.5 15.5 9.5" stroke="#fff" stroke-width="2.2"/>
+{%- elif name == 'recall' %}<rect x="3" y="3" width="18" height="18" rx="5" fill="currentColor" stroke="none"/><circle cx="12" cy="12" r="4.2" stroke="#fff" stroke-width="2"/>
+{%- elif name == 'star' %}<polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2" fill="#f5a623" stroke="#f5a623"/>
+{%- elif name == 'folder' %}<path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/>
+{%- elif name == 'trash' %}<polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6M14 11v6M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/>
+{%- elif name == 'box' %}<path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><polyline points="3.27 6.96 12 12.01 20.73 6.96"/><line x1="12" y1="22.08" x2="12" y2="12"/>
+{%- endif %}</svg>
+{%- endmacro %}
