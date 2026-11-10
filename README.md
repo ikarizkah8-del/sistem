@@ -42,7 +42,7 @@ Tidak membutuhkan koneksi internet saat dijalankan: seluruh CSS dan ikon sudah a
 ### Windows
 
 ```bash
-git clone https://github.com/nabilazh11/Skripsi-ika.git
+git clone https://github.com/nnabilahan/Skripsi-ika.git
 cd Skripsi-ika
 python -m venv venv
 venv\Scripts\activate
@@ -53,7 +53,7 @@ python sistem_deteksi_ddos/app.py
 ### macOS / Linux
 
 ```bash
-git clone https://github.com/nabilazh11/Skripsi-ika.git
+git clone https://github.com/nnabilahan/Skripsi-ika.git
 cd Skripsi-ika
 python3 -m venv venv
 source venv/bin/activate
